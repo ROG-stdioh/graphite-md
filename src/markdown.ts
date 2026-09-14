@@ -1,24 +1,21 @@
 import MarkdownIt from 'markdown-it';
-// @ts-ignore - no bundled types for these plugins
+import type { Token } from 'markdown-it';
+// The six plugins below ship no types of their own. Their shapes are declared
+// in src/types/markdown-it-plugins.d.ts, read from the installed packages —
+// which is why there is no suppression directive on any of these lines.
 import texmath from 'markdown-it-texmath';
-// @ts-ignore
+import type { TexmathOptions } from 'markdown-it-texmath';
 import markdownItSup from 'markdown-it-sup';
-// @ts-ignore
 import markdownItSub from 'markdown-it-sub';
-// @ts-ignore
 import markdownItIns from 'markdown-it-ins';
-// @ts-ignore
 import markdownItMark from 'markdown-it-mark';
-// @ts-ignore
 import markdownItFootnote from 'markdown-it-footnote';
 import katex from 'katex';
 import hljs from 'highlight.js';
-
-export interface TocNode {
-  label: string;
-  target: string;
-  children?: TocNode[];
-}
+// TocNode lives in the shared contract, not here: it is the shape of the
+// outline data that crosses to the webview, so the host and the webview have to
+// name the same type or the guard in protocol.ts is checking something else.
+import type { TocNode } from './shared/protocol';
 
 export interface RenderResult {
   html: string;
@@ -41,7 +38,7 @@ const md: MarkdownIt = new MarkdownIt({
     if (lang && hljs.getLanguage(lang)) {
       try {
         return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`;
-      } catch (_err) {
+      } catch {
         // fall through to plain
       }
     }
@@ -49,13 +46,38 @@ const md: MarkdownIt = new MarkdownIt({
   },
 });
 
+// Auto-link only what is unambiguously a link.
+//
+// markdown-it's default "fuzzy" mode turns any bare `word.tld` into a link,
+// and a lot of country TLDs are also file extensions — .md (Moldova), .sh
+// (Saint Helena), .rs, .pl, .so, .cc, .ml. So a document that merely mentions
+// README.md, setup.sh or lib.so renders those words as links to
+// http://README.md, http://setup.sh, http://lib.so — which are real domains
+// belonging to other people, and which the preview happily opened in a
+// browser when clicked. In a Markdown preview, "*.md" is overwhelmingly a
+// filename, so fuzzy matching costs far more than it buys.
+//
+// Explicit schemes (http://, https://, mailto:) and bare email addresses are
+// matched by separate, non-fuzzy rules and still linkify.
+md.linkify.set({ fuzzyLink: false });
+
 // Registering a plugin runs at module load time — if it throws, the whole
 // extension fails to even load (this file is require()'d from extension.ts
 // before activate() runs), which is a much worse failure mode than "the
 // syntax isn't rendered". Guard each one so a plugin problem degrades
 // gracefully instead of taking the entire extension down.
 try {
-  md.use(texmath, { engine: katex, delimiters: 'dollars', katexOptions: { throwOnError: false } });
+  md.use(
+    texmath,
+    // `satisfies` rather than a bare literal: md.use's own generic infers its
+    // type parameter from this argument, so without it the check is skipped and
+    // a misspelled delimiter set silently renders no math.
+    {
+      engine: katex,
+      delimiters: 'dollars',
+      katexOptions: { throwOnError: false },
+    } satisfies TexmathOptions
+  );
 } catch (err) {
   console.error('graphite.md: failed to register markdown-it-texmath, math rendering will be disabled', err);
 }
@@ -95,6 +117,18 @@ md.renderer.rules.table_open = () => {
   return `<table class="md-table" id="table-${tableCounter}">`;
 };
 
+// Reads a token the stream guarantees is there. noUncheckedIndexedAccess
+// cannot see that invariant, and both alternatives lose something: a silent
+// `continue` would drop a section out of the outline with no diagnostic, and
+// `!` would assert an invariant nothing enforces. Throwing is what happens
+// today — a TypeError on the same line — except renderMarkdown's caller turns
+// a throw into a visible error page, so the failure stays loud either way.
+function at<T>(tokens: readonly T[], i: number, what: string): T {
+  const t = tokens[i];
+  if (t === undefined) throw new Error(`graphite.md: expected ${what} at token ${i}, found none`);
+  return t;
+}
+
 // ---- fenced code: mermaid gets a live diagram div, everything else stays code
 let diagramCounter = 0;
 const defaultFence =
@@ -103,7 +137,7 @@ const defaultFence =
     return self.renderToken(tokens, idx, options);
   };
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-  const token = tokens[idx];
+  const token = at(tokens, idx, 'a fence token');
   const lang = token.info.trim().toLowerCase();
   if (lang === 'mermaid') {
     diagramCounter += 1;
@@ -126,33 +160,46 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 // markdown-it has no built-in task list support, and existing plugins don't
 // give us the source line number we need for click-to-toggle edits, so this
 // is a small self-contained pass over the token stream instead of a plugin.
-function applyTaskLists(tokens: any[]): void {
+function applyTaskLists(tokens: Token[]): void {
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
+    const t = at(tokens, i, 'a token');
     if (t.type !== 'inline' || !t.children || !t.children.length) continue;
-    const first = t.children[0];
+    const first = at(t.children, 0, 'the first child of an inline token');
     if (first.type !== 'text') continue;
 
     const m = first.content.match(/^\[( |x|X)\]\s+/);
     if (!m) continue;
 
-    const checked = /x/i.test(m[1]);
-    first.content = first.content.slice(m[0].length);
+    // Both captures are mandatory in the pattern; noUncheckedIndexedAccess
+    // cannot see that. Defaulting to '' is correct here, where `?? ''` would
+    // have been wrong in collectTables: a missing marker means "not checked",
+    // which is exactly what an empty box means, so nothing is invented.
+    const [marker, box = ''] = m;
+    const checked = /x/i.test(box);
+    first.content = first.content.slice(marker.length);
 
     // walk back to the enclosing list item for its class + source line
     let line: number | undefined;
     for (let j = i - 1; j >= 0; j--) {
-      if (tokens[j].type === 'list_item_open') {
-        tokens[j].attrJoin('class', 'task-list-item');
-        if (tokens[j].map) line = tokens[j].map[0];
+      const prev = at(tokens, j, 'a token');
+      if (prev.type === 'list_item_open') {
+        prev.attrJoin('class', 'task-list-item');
+        if (prev.map) line = prev.map[0];
         break;
       }
     }
 
-    const checkbox: any = {
+    // A cast, deliberately, not `new Token('html_inline', '', 0)`. The
+    // constructor would fill in level/nesting/attrs/map/hidden, and this
+    // token is read by markdown-it's inline renderer for exactly two fields,
+    // type and content. The cast keeps the pushed object identical to the one
+    // the untested-but-working version pushed, which is the only thing a
+    // type-only refactor may claim. Token has every field this literal has, so
+    // the assertion is the legal narrowing direction — no `as unknown as`.
+    const checkbox = {
       type: 'html_inline',
       content: `<span class="${checked ? 'task-checkbox checked' : 'task-checkbox'}"${line !== undefined ? ` data-line="${line}"` : ''}></span>`,
-    };
+    } as Token;
     t.children.unshift(checkbox);
   }
 }
@@ -174,7 +221,7 @@ interface Section {
   title: string;
   titleHtml: string;
   id: string;
-  bodyTokens: any[];
+  bodyTokens: Token[];
   children: Section[];
 }
 
@@ -207,15 +254,15 @@ export function renderMarkdown(rawSource: string): RenderResult {
   const slugs = new Map<string, number>();
 
   let docTitleHtml = '';
-  const introTokens: any[] = [];
-  const footerTokens: any[] = [];
+  const introTokens: Token[] = [];
+  const footerTokens: Token[] = [];
   const roots: Section[] = [];
   const stack: Section[] = [];
   let sawH1 = false;
   let inFootnote = false;
 
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
+    const t = at(tokens, i, 'a token');
 
     // markdown-it-footnote hoists every [^n]: definition into one
     // footnote_block at the end of the token stream. Keep that whole block
@@ -241,7 +288,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
     // right-hand panel to end up at the bottom of the document.
     if (t.type === 'heading_open' && t.level === 0) {
       const level = Number(t.tag.slice(1)); // "h2" -> 2
-      const inline = tokens[i + 1];
+      const inline = at(tokens, i + 1, 'the inline token after a heading_open');
       const titleText = inline.content;
       const titleHtml = md.renderer.renderInline(inline.children || [], md.options, {});
       i += 2; // skip inline + heading_close
@@ -255,9 +302,16 @@ export function renderMarkdown(rawSource: string): RenderResult {
       const id = `body-${slugify(titleText, slugs)}`;
       const section: Section = { level, title: titleText, titleHtml, id, bodyTokens: [], children: [] };
 
-      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
-      if (stack.length) {
-        stack[stack.length - 1].children.push(section);
+      // The stack is legitimately empty before the first heading, so this is
+      // real narrowing rather than an index the stream guarantees.
+      let top = stack[stack.length - 1];
+      while (top && top.level >= level) {
+        stack.pop();
+        top = stack[stack.length - 1];
+      }
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.children.push(section);
       } else {
         roots.push(section);
       }
@@ -267,10 +321,11 @@ export function renderMarkdown(rawSource: string): RenderResult {
 
     // non-heading token: goes to the innermost open section, or the intro
     // block if we haven't hit any section-starting heading yet
-    (stack.length ? stack[stack.length - 1].bodyTokens : introTokens).push(t);
+    const innermost = stack[stack.length - 1];
+    (innermost ? innermost.bodyTokens : introTokens).push(t);
   }
 
-  function renderTokens(toks: any[]): string {
+  function renderTokens(toks: Token[]): string {
     return md.renderer.render(toks, md.options, {});
   }
 
@@ -278,7 +333,10 @@ export function renderMarkdown(rawSource: string): RenderResult {
     // tableCounter was already advanced by the renderer; just label the ones
     // that landed in this section's HTML by scanning for the ids we assigned
     const matches = html.matchAll(/id="(table-\d+)"/g);
-    const ids = Array.from(matches, (m) => m[1]);
+    // The capture is mandatory in the pattern, so the filter never drops
+    // anything — it is how the type says so. `?? ''` would instead invent an
+    // empty target that the outline would then try to scroll to.
+    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
     ids.forEach((id, i) => {
       tables.push({ label: ids.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel, target: id });
     });
@@ -287,7 +345,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
 
   function collectDiagrams(html: string, sectionLabel: string): string {
     const matches = html.matchAll(/class="mermaid" id="(diagram-\d+)"/g);
-    const ids = Array.from(matches, (m) => m[1]);
+    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
     ids.forEach((id, i) => {
       diagrams.push({ label: ids.length > 1 ? `${sectionLabel} — diagram ${i + 1}` : sectionLabel, target: id });
     });

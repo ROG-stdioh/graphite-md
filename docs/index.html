@@ -8,7 +8,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23262624'/%3E%3Cpath d='M11 9v15' stroke='%23837F76' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M11 11c0 4.5 10 2 10 6' stroke='%23E0785A' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='11' r='3' fill='%23E0785A'/%3E%3Ccircle cx='21' cy='19' r='2.5' fill='%23F2EFE7'/%3E%3C/svg%3E">
 <style>
   :root{
-    --bg: #262624;
+    /* The page ground. This is the colour the gallery page used, now the
+       whole site's: one ground for all three tabs, so switching tabs never
+       shifts the page colour. Note the captures keep their OWN ground
+       (#262624, see --g-bg below) — they are screenshots of the product and
+       must not follow the page. */
+    --bg: #171614;
     --bg-sidebar: #201F1D;
     --bg-code: #1C1B19;
     --border: rgba(255,255,255,0.07);
@@ -135,6 +140,207 @@
     h2{ font-size:19px; }
     .outline-figure svg{ max-width:100%; }
   }
+
+  /* ======================================================================
+     GALLERY TAB
+     ======================================================================
+     Scoped to #page-gallery throughout, so none of it can collide with the
+     element-level rules the README and Documentation tabs depend on — p, li,
+     h1–h3, a, code and th/td are all styled globally above and would other-
+     wise reach in here.
+
+     It carries NO palette of its own. Every colour below resolves to a
+     :root token, so the ground behind the frames is the same ground as the
+     README's: switching tabs does not shift the page colour. The only
+     literal colours live inside .shot, which describes the CAPTURE's own
+     pixels — a screenshot of a dark app — and must not follow the page in
+     either direction.
+     ==================================================================== */
+
+  /* The captures are wide; the 760px column is for prose. */
+  #page-gallery{ max-width: none; }
+  #page-gallery h1,
+  #page-gallery h2,
+  #page-gallery h3{ text-wrap: balance; margin: 0; }
+
+  /* ---- intro ---- */
+  #page-gallery .brief{ max-width: 68ch; padding-block: 0 8px; }
+  #page-gallery .brief p{ margin: 0 0 12px; color: var(--ink-soft); }
+  #page-gallery .brief p:last-child{ margin-bottom: 0; }
+  #page-gallery .brief strong{ color: var(--ink); font-weight: 600; }
+  #page-gallery .brief code{
+    font-family: var(--mono); font-size: 12.5px; background: var(--accent-soft);
+    color: var(--accent); padding: 1.5px 6px; border-radius: 4px;
+  }
+
+  /* ---- plates ---- */
+  #page-gallery .plate{ margin-top: 52px; }
+  #page-gallery .plate-head{
+    display: flex; align-items: baseline; gap: 10px 16px; flex-wrap: wrap;
+    padding-bottom: 10px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #page-gallery .plate-num{
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    color: var(--accent); letter-spacing: 0.1em;
+  }
+  #page-gallery .plate-name{ font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--ink); }
+  #page-gallery .plate-size{ font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #page-gallery .blurb{ max-width: 70ch; margin-bottom: 18px; }
+  #page-gallery .kicker{
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+    display: block; margin-bottom: 7px;
+  }
+  /* margin/padding/border undone explicitly: the global h2 carries a rule
+     above it and 34px of top margin for the prose tabs. */
+  #page-gallery .blurb h2{
+    font-family: var(--serif); font-size: 25px; font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0; padding-top: 0; border-top: none;
+  }
+  #page-gallery .blurb p{ margin: 8px 0 0; color: var(--ink-soft); font-size: 15px; }
+  #page-gallery .plate-note{ max-width: 88ch; margin: 14px 0 0; font-size: 14.5px; color: var(--ink-soft); }
+
+  /* ---- the viewport that scales a fixed-size capture to the column ----
+     Its width tracks the SCALED capture rather than the column, so a
+     capture narrower than the column doesn't leave a band of empty ground
+     beside it. --fw/--fh are the capture's real pixel size, set inline;
+     --k is set by the gallery script, and the :1 here is only so the calc
+     is valid before the first pass runs. */
+  #page-gallery .viewport{
+    --k: 1;
+    position: relative; overflow: hidden;
+    background: var(--bg-code);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 18px 40px -16px rgba(0,0,0,0.7);
+    width: calc(var(--fw) * var(--k));
+    max-width: 100%;
+    height: calc(var(--fh) * var(--k));
+  }
+  #page-gallery .viewport > .scaler{
+    position: relative;
+    width: var(--fw); height: var(--fh);
+    transform: scale(var(--k)); transform-origin: top left;
+  }
+
+  /* ---- a capture ----
+     --g-bg and --g-accent are LOCKED. They are the ground and the annotation
+     accent of the screenshots themselves, and they deliberately do not read
+     the page tokens: a capture is a dark app, and it stays one whatever the
+     page around it does. */
+  #page-gallery .shot{
+    --g-bg:     #262624;
+    --g-accent: #E0785A;
+    position: relative;
+    width: 100%; height: 100%;
+    background: var(--g-bg);
+    overflow: hidden;
+  }
+  #page-gallery .shot > img{
+    display: block; width: 100%; height: 100%;
+    -webkit-user-drag: none; user-select: none;
+  }
+  /* ---- annotated-capture markers ----
+     A marker is positioned by its CENTRE, in the capture's own pixel space:
+     left/top are the measured coordinates and translate(-50%,-50%) turns
+     them into an anchor. The whole scaler is transformed as one, so a marker
+     holds its exact position on the pixel it names at any display size.
+     Nothing here is estimated — every coordinate was read off the PNG, and
+     a retaken capture means re-measuring, not nudging.
+
+     Named .mark rather than .badge because the README tab already uses
+     .badge for its version chip. */
+  #page-gallery .mark{
+    position: absolute; z-index: 8; pointer-events: none;
+    width: 22px; height: 22px; margin: 0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--g-accent);
+    color: #1C1B19;
+    font-family: var(--mono); font-size: 12px; font-weight: 600; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 3px rgba(28,27,25,0.55);
+  }
+
+  /* ---- the numbered legend under a capture ----
+     A TABLE, not a list — and it has to undo the global th/td borders and
+     header fill above. The <ol> this replaced set `display: grid` on each
+     <li>, and grid makes every child a grid item, including each run of
+     loose text. A line like
+
+         Click a box in the preview and <code>- [ ]</code> line in the file…
+
+     therefore became FOUR items, and auto-placement dropped the <code> into
+     column 1 — the 24px number column — stacking it one character per line
+     while the rest of the sentence went to a second row. A table keeps each
+     description in ONE cell and sizes the number column to the marker, so
+     marker and text stay aligned however many lines a description runs to. */
+  #page-gallery .legend{
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 96ch;
+    margin: 18px 0 0;
+    font-family: var(--serif);
+    font-size: 15px; line-height: 1.6; color: var(--ink-soft);
+    border: 0;
+  }
+  #page-gallery .legend th,
+  #page-gallery .legend td{ border: 0; background: none; }
+  #page-gallery .legend th{
+    width: 1%;                    /* shrink to the marker; never claim more */
+    vertical-align: top;
+    padding: 0 15px 12px 0;
+    font-weight: 400;
+  }
+  #page-gallery .legend th span{
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; margin-top: 1px;
+    border-radius: 50%;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    color: var(--accent); background: var(--accent-soft);
+  }
+  #page-gallery .legend td{ vertical-align: top; padding: 0 0 12px; color: var(--ink-soft); }
+  #page-gallery .legend tr:last-child th,
+  #page-gallery .legend tr:last-child td{ padding-bottom: 0; }
+  #page-gallery .legend code{
+    font-family: var(--mono); font-size: 13px;
+    background: var(--accent-soft); color: var(--accent);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  #page-gallery .sr-only{
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+
+  /* ---- the two-up pair inside plate 04 ----
+     The captures sit in wrappers (each needs its label above it), so the
+     flex sizing has to land on the wrapper, not on .viewport. */
+  #page-gallery .pair{ display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  #page-gallery .pair > *{ flex: 1 1 320px; min-width: 0; }
+  #page-gallery .pair-label{
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-bottom: 7px; letter-spacing: 0.03em;
+  }
+
+  #page-gallery .site-foot{
+    margin-top: 76px; padding-top: 26px;
+    border-top: 1px solid var(--border);
+    max-width: 88ch;
+  }
+  #page-gallery .site-foot p{ margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+  #page-gallery .site-foot p:last-child{ margin-bottom: 0; }
+  #page-gallery .site-foot code{
+    font-family: var(--mono); font-size: 12px; background: var(--accent-soft);
+    color: var(--accent); padding: 1px 5px; border-radius: 4px;
+  }
+
+  @media (max-width: 700px){
+    #page-gallery .plate{ margin-top: 40px; }
+    #page-gallery .blurb h2{ font-size: 21px; }
+    #page-gallery .pair{ gap: 18px; }
+  }
 </style>
 </head>
 <body>
@@ -156,6 +362,7 @@
   <nav class="tabs">
     <button class="active" data-tab="readme">README</button>
     <button data-tab="docs">Documentation</button>
+    <button data-tab="gallery">Gallery</button>
   </nav>
 
   <main>
@@ -163,7 +370,7 @@
     <!-- ============================= README TAB ============================= -->
     <div class="page active" id="page-readme">
       <!-- Keep in sync with the "version" field in package.json -->
-      <span class="badge">v0.0.1</span>
+      <span class="badge">v0.0.2</span>
       <h1>graphite.md</h1>
       <p>A Markdown preview for people who read a lot of Markdown: collapsible sections, a git-graph style outline, checklists, math, and diagrams — in a dark, distraction-free theme.</p>
 
@@ -196,6 +403,9 @@
       <h3>Rich inline syntax</h3>
       <p>Superscript (<code>^2^</code>), subscript (<code>~2~</code>), underline (<code>++text++</code>), highlighting (<code>==text==</code>), strikethrough (<code>~~text~~</code>), and footnotes (<code>[^1]</code>) all render natively.</p>
 
+      <h3>Links that go where you meant them to</h3>
+      <p>A relative link opens the file it points at, resolved against the document you're previewing — the same way VS Code's own Markdown preview resolves it. Absolute URLs open in your browser. And a bare filename stays a filename: <code>README.md</code> in a sentence is not turned into a link to <code>http://README.md</code>, which matters because plenty of country domains (<code>.md</code>, <code>.sh</code>, <code>.rs</code>, <code>.pl</code>, <code>.so</code>, <code>.cc</code>) are also file extensions.</p>
+
       <h3>Syntax highlighting</h3>
       <p>Fenced code blocks are highlighted with highlight.js, tinted to match the graphite theme.</p>
 
@@ -219,12 +429,14 @@
       </table>
 
       <h2>Requirements</h2>
-      <p>VS Code 1.85.0 or later. No other setup — everything the preview needs (KaTeX, Mermaid) ships bundled with the extension.</p>
+      <p>VS Code 1.134.0 or later. No other setup — everything the preview needs (KaTeX, Mermaid) ships bundled with the extension.</p>
 
       <h2>Known limitations</h2>
       <ul>
-        <li>Merged-cell tables aren't supported yet — a syntax for this is still being designed.</li>
-        <li>The preview doesn't yet follow the editor cursor (or vice versa). Re-renders do preserve your scroll position.</li>
+        <li>Merged-cell tables (<code>rowspan</code> / <code>colspan</code>) aren't supported yet — a syntax for them is still being designed. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/8">#8</a>)</li>
+        <li>The preview doesn't yet follow the editor cursor, or the editor the preview. Re-rendering after an edit does preserve your scroll position, so you aren't thrown back to the top.</li>
+        <li>After an extension update, the preview can keep running the previous version's bundle until the panel is reopened. Close and reopen the preview if it looks stale; the durable fix is content-hash busting. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/6">#6</a>)</li>
+        <li>The outline panel is a fixed width and can't be collapsed yet. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/3">#3</a>)</li>
       </ul>
 
       <h2>Contributing</h2>
@@ -358,6 +570,192 @@ const answer: number = 42;
       </table>
     </div>
 
+    <!-- ============================ GALLERY TAB ============================ -->
+    <div class="page" id="page-gallery">
+
+      <div class="brief">
+        <p><strong>These are real captures.</strong> Every image below is graphite.md itself, rendering a document — nothing is mocked up in HTML. The numbered markers are an overlay, not part of the product; the captures underneath are unedited.</p>
+        <p>The documents are fictional, but they are written the way their kinds are actually written — an engineering RFC, an operator runbook, a systems paper, and an editor's pass on a launch post. A preview is only as convincing as the text inside it, and a document written for a screenshot reads like one.</p>
+      </div>
+
+      <!-- ==================================================== 01 · HERO ====== -->
+      <section class="plate">
+        <div class="plate-head">
+          <span class="plate-num">01</span>
+          <span class="plate-name">hero.png</span>
+          <span class="plate-size">1260 × 570</span>
+        </div>
+        <div class="blurb">
+          <span class="kicker">Hero</span>
+          <h2>A Markdown preview for people who read a lot of Markdown.</h2>
+          <p>RFC 014, opened at the top. The outline panel is fully in frame rather than cropped, because it is the thing most previews do not have.</p>
+        </div>
+        <div class="viewport" style="--fw:1260px; --fh:570px;">
+          <div class="scaler">
+            <div class="shot">
+              <img src="captures/hero.png" width="1260" height="570"
+                   alt="graphite.md preview of an engineering RFC, showing the document title, summary and motivation beside the outline panel.">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================= 02 · OUTLINE ====== -->
+      <section class="plate">
+        <div class="plate-head">
+          <span class="plate-num">02</span>
+          <span class="plate-name">outline.png</span>
+          <span class="plate-size">1195 × 544</span>
+        </div>
+        <div class="blurb">
+          <span class="kicker">Outline</span>
+          <h2>The outline is a graph, not a list.</h2>
+          <p>Scrolled to a level-four heading inside a level-three inside a level-two. The path down to it is drawn, and so is everything hanging off it.</p>
+        </div>
+        <div class="viewport" style="--fw:1195px; --fh:544px;">
+          <div class="scaler">
+            <div class="shot">
+              <img src="captures/outline.png" width="1195" height="544"
+                   alt="The preview scrolled to a deeply nested heading, with the outline panel showing the accented path to the current section.">
+              <span class="mark" style="left:1000px; top:205px;">1</span>
+              <span class="mark" style="left:988px;  top:402px;">2</span>
+            </div>
+          </div>
+        </div>
+        <table class="legend">
+          <caption class="sr-only">Annotations keyed to the numbered markers in the capture above.</caption>
+          <tbody>
+            <tr><th scope="row"><span>1</span></th>
+                <td>The row you are reading is lit, and so is every section above it — one curve for each level the path passes through, so you can see how deep you are without counting indents.</td></tr>
+            <tr><th scope="row"><span>2</span></th>
+                <td>Tables and diagrams keep their own outlines, folded behind their own headers until you want them.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ============================================== 03 · CHECKLISTS ====== -->
+      <section class="plate">
+        <div class="plate-head">
+          <span class="plate-num">03</span>
+          <span class="plate-name">checklists.png</span>
+          <span class="plate-size">1373 × 371</span>
+        </div>
+        <div class="blurb">
+          <span class="kicker">Checklists</span>
+          <h2>Ticking a box edits your file.</h2>
+          <p>The runbook's pre-flight checks, source on the left and preview on the right at the same scroll position. Four ticked, two still open.</p>
+        </div>
+        <div class="viewport" style="--fw:1373px; --fh:371px;">
+          <div class="scaler">
+            <div class="shot">
+              <img src="captures/checklists.png" width="1373" height="371"
+                   alt="A split view: the runbook's markdown source on the left, and the same pre-flight section rendered on the right with four of six checkboxes ticked.">
+              <span class="mark" style="left:845px; top:265px;">1</span>
+            </div>
+          </div>
+        </div>
+        <table class="legend">
+          <caption class="sr-only">Annotations keyed to the numbered markers in the capture above.</caption>
+          <tbody>
+            <tr><th scope="row"><span>1</span></th>
+                <td>Click a box in the preview and graphite.md rewrites the <code>- [ ]</code> line in the file on the left. There is no separate task list, so the two cannot drift apart.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ========================================== 04 · MATH + DIAGRAMS ===== -->
+      <section class="plate">
+        <div class="plate-head">
+          <span class="plate-num">04</span>
+          <span class="plate-name">math.png · diagrams.png</span>
+          <span class="plate-size">780 × 606 · 780 × 550</span>
+        </div>
+        <div class="blurb">
+          <span class="kicker">Math &amp; diagrams</span>
+          <h2>Rendered where you wrote them.</h2>
+          <p>Two scroll positions of the same paper — <code>$$…$$</code> at the model, a <code>```mermaid</code> fence at the testbed.</p>
+        </div>
+        <div class="pair">
+          <div>
+            <div class="pair-label">$$ … $$</div>
+            <div class="viewport" style="--fw:780px; --fh:606px;">
+              <div class="scaler">
+                <div class="shot">
+                  <img src="captures/math.png" width="780" height="606"
+                       alt="A paper section showing a table of replica states with inline math, and a display equation for the probability of a slow read.">
+                  <span class="mark" style="left:52px; top:502px;">1</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="pair-label">```mermaid</div>
+            <div class="viewport" style="--fw:780px; --fh:550px;">
+              <div class="scaler">
+                <div class="shot">
+                  <img src="captures/diagrams.png" width="780" height="550"
+                       alt="A testbed section with a mermaid flow diagram: a coordinator fanning out to five replicas, four of which feed a quorum of three.">
+                  <span class="mark" style="left:52px; top:205px;">2</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <table class="legend">
+          <caption class="sr-only">Annotations keyed to the numbered markers in the captures above.</caption>
+          <tbody>
+            <tr><th scope="row"><span>1</span></th>
+                <td>Display math, typeset by KaTeX. The same engine renders the inline <code>$T_f$</code> and <code>$p$</code> in the table above it.</td></tr>
+            <tr><th scope="row"><span>2</span></th>
+                <td>A mermaid fence, drawn by Mermaid. Both ship inside the extension, so this is what the preview looks like with no network at all.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ========================================== 05 · INLINE SYNTAX ====== -->
+      <section class="plate">
+        <div class="plate-head">
+          <span class="plate-num">05</span>
+          <span class="plate-name">inline-syntax.png</span>
+          <span class="plate-size">1445 × 653</span>
+        </div>
+        <div class="blurb">
+          <span class="kicker">Inline syntax</span>
+          <h2>Edits read as edits.</h2>
+          <p>An editor's pass on a launch post: cuts, additions and open questions all marked up in the source, all still legible in the preview.</p>
+        </div>
+        <div class="viewport" style="--fw:1445px; --fh:653px;">
+          <div class="scaler">
+            <div class="shot">
+              <img src="captures/inline-syntax.png" width="1445" height="653"
+                   alt="A split view of a launch post being edited: strikethrough, highlight and underline markup in the source on the left, rendered in the preview on the right, with two footnotes below.">
+              <span class="mark" style="left:728px; top:414px;">1</span>
+              <span class="mark" style="left:728px; top:447px;">2</span>
+              <span class="mark" style="left:1082px; top:565px;">3</span>
+            </div>
+          </div>
+        </div>
+        <table class="legend">
+          <caption class="sr-only">Annotations keyed to the numbered markers in the capture above.</caption>
+          <tbody>
+            <tr><th scope="row"><span>1</span></th>
+                <td>A cut stays visible as strikethrough, so the edit is reviewable in the rendered document rather than only in the diff.</td></tr>
+            <tr><th scope="row"><span>2</span></th>
+                <td>Anything still needing a decision is highlighted, and additions are underlined. Three review states, readable in place.</td></tr>
+            <tr><th scope="row"><span>3</span></th>
+                <td>Footnotes link both ways — the ↩ at the end of a note returns to the sentence that cited it.</td></tr>
+          </tbody>
+        </table>
+        <p class="plate-note">The only capture with the editor in frame. The point is the correspondence between the markup on the left and the rendering on the right, which a preview-only crop would throw away.</p>
+      </section>
+
+      <footer class="site-foot">
+        <p>The documents behind these captures live in <code>samples/</code> — open any of them in VS Code to see the same rendering on your own machine.</p>
+        <p>graphite.md is MIT-licensed. <a href="https://github.com/ROG-stdioh/graphite-md">Source on GitHub</a> · <a href="https://github.com/ROG-stdioh/graphite-md/issues">Report an issue</a></p>
+      </footer>
+
+    </div>
+
   </main>
 
   <script>
@@ -367,8 +765,36 @@ const answer: number = 42;
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('page-' + btn.dataset.tab).classList.add('active');
+        // The gallery's frames size themselves from their column, which reads
+        // as 0 while the panel is display:none — so the fit has to re-run on
+        // the click that reveals them. No-op for the other tabs.
+        if (window.galleryRefit) window.galleryRefit();
       });
     });
+  </script>
+
+  <script>
+  // Gallery: scale each fixed-size capture down to the column it sits in.
+  // Never up — a capture is shown at 1:1 or smaller, so it is never
+  // stretched past its own resolution.
+  (function () {
+    var plates = [].slice.call(document.querySelectorAll('#page-gallery .viewport'));
+
+    function apply() {
+      plates.forEach(function (vp) {
+        var fw = parseFloat(getComputedStyle(vp).getPropertyValue('--fw'));
+        // measure the PARENT: the viewport's own width is derived from --k,
+        // so reading it here would feed the result back into its own input
+        var avail = (vp.parentElement || vp).clientWidth;
+        vp.style.setProperty('--k', Math.min(1, avail / fw));
+      });
+    }
+    // the tab handler calls this when the gallery is revealed
+    window.galleryRefit = apply;
+
+    window.addEventListener('resize', apply);
+    apply();
+  })();
   </script>
 
 </body>

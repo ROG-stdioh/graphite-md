@@ -2,7 +2,7 @@
   "name": "graphite-md",
   "displayName": "graphite.md",
   "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "rog-stdioh",
   "license": "MIT",
   "icon": "icon.png",
@@ -29,7 +29,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.134.0"
   },
   "categories": [
     "Visualization",
@@ -94,15 +94,27 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.js && node scripts/copy-assets.js",
-    "watch": "node esbuild.js --watch"
+    "build": "node esbuild.ts && node scripts/copy-assets.ts",
+    "watch": "node esbuild.ts --watch",
+    "test:bdd": "cucumber-js",
+    "check": "node scripts/render-check.ts && node scripts/graph-check.ts",
+    "check:package": "node scripts/package-check.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json",
+    "lint": "eslint .",
+    "knip": "knip"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^13.2.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "~1.134.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.21.0",
-    "typescript": "^5.4.0"
+    "eslint": "^10.10.0",
+    "jiti": "^2.7.0",
+    "knip": "^6.35.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",

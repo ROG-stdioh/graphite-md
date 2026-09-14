@@ -1,0 +1,42 @@
+{
+  // The tooling program: the build script, the check scripts, the BDD suite and
+  // the two config files that are TypeScript. A third program because these
+  // files run in Node — not in VS Code, not in the webview — and because
+  // nothing could hold them while they were `.js`: a program that includes
+  // JavaScript needs `allowJs`, and with `checkJs` off that parses the files
+  // and checks nothing at all.
+  //
+  // Deliberately no `rootDir`, for the reason tsconfig.base.json gives. These
+  // files reach up into src/ for their types — the BDD world renders through
+  // the real src/markdown.ts, so its result type is the renderer's own — which
+  // puts the program's common root at the repo, where a `rootDir` fitting one
+  // program is a TS6059 for another.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+
+    // Every file here is CommonJS — `require` and `module.exports`, no ESM
+    // syntax — and under the default `auto` detection TypeScript reads a file
+    // with no import as a *global script*. These scripts would then collide,
+    // because they deliberately share top-level names: each has its own `check`
+    // and `failures`. `force` makes every file in the program a module, so a
+    // new script cannot be written into a name clash with an existing one.
+    "moduleDetection": "force"
+  },
+  // src/types/ is here because of the line above it: reaching into src/ for the
+  // renderer's own types means the renderer's *dependencies* have to resolve
+  // too, and six of them ship no types at all — src/markdown.ts relies on the
+  // `declare module` blocks in src/types/markdown-it-plugins.d.ts, which the
+  // host program picks up by including src/** and this program would otherwise
+  // miss (TS7016 on every plugin import). An ambient declaration is program
+  // context, not source, so the same file belongs to both programs — the same
+  // way src/shared/protocol.ts does.
+  "include": [
+    "esbuild.ts",
+    "eslint.config.ts",
+    "scripts/**/*.ts",
+    "features/**/*.ts",
+    "src/types/**/*.d.ts"
+  ]
+}

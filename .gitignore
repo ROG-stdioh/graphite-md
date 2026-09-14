@@ -3,5 +3,12 @@ out/
 media/vendor/
 *.vsix
 
+# The webview bundle. Built by esbuild from src/webview/main.ts, never edited in
+# place and never committed: a checked-in build artifact is a stale one the
+# moment someone edits the source and forgets to rebuild, and the check scripts
+# read this file straight off disk.
+media/preview.js
+media/preview.js.map
+
 # scratch logs left behind by debugging sessions
 scripts/*.log*

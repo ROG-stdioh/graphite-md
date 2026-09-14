@@ -1,0 +1,16 @@
+{
+  // The webview program, and the reason it lives in this directory rather than
+  // at the repo root: TypeScript resolves a file to the *nearest* tsconfig
+  // walking up, so a root-level config would leave the largest file in this
+  // conversion with no editor diagnostics and with errors that disagreed with
+  // CI.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // Empty on purpose. The webview runs in a browser context with no module
+    // system and no node — letting @types/node in would make `process` and
+    // `require` compile here and throw in the preview.
+    "types": []
+  },
+  "include": ["./**/*.ts", "../shared/**/*.ts"]
+}
