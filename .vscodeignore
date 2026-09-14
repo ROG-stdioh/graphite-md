@@ -15,7 +15,12 @@ src/**
 scripts/**
 samples/**
 docs/**
-out/render-check.bundle.js
+features/**
+cucumber.js
+# Every dev/test bundle lands in out/ beside extension.js, which is the one
+# file in there that must ship. The glob is deliberately narrow: it matches
+# *.bundle.js and never extension.js.
+out/*.bundle.js
 esbuild.js
 tsconfig.json
 # "*.map" alone does NOT match out/extension.js.map — a bare glob does not
