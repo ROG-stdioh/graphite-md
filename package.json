@@ -97,7 +97,8 @@
     "build": "node esbuild.js && node scripts/copy-assets.js",
     "watch": "node esbuild.js --watch",
     "test:bdd": "cucumber-js",
-    "check": "node scripts/render-check.js && node scripts/graph-check.js"
+    "check": "node scripts/render-check.js && node scripts/graph-check.js",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
@@ -105,7 +106,7 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.21.0",
-    "typescript": "^5.4.0"
+    "typescript": "~6.0.3"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",
