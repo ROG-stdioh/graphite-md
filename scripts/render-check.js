@@ -83,6 +83,22 @@ async function main() {
   check('task checkboxes with source lines', /task-checkbox/.test(html) && /data-line="\d+"/.test(html));
   check('checked + unchecked boxes both emitted', /task-checkbox checked/.test(html) && /class="task-checkbox"/.test(html));
 
+  // ---- links ----------------------------------------------------------------
+  // Regression: markdown-it's "fuzzy" linkify turns any bare word.tld into a
+  // link, and .md / .sh / .rs / .so / .pl are all country TLDs. So a document
+  // that merely mentioned README.md rendered a link to http://README.md — a
+  // real domain owned by someone else — and clicking it opened their website.
+  // In a Markdown preview "*.md" is a filename; these must stay plain text.
+  const render = (s) => renderMarkdown(s).html;
+  check('bare README.md is not linkified', !/href="http:\/\/README\.md"/.test(render('See README.md for details.')));
+  check('bare graphite.md is not linkified', !/href="http:\/\/graphite\.md"/.test(render('# graphite.md')));
+  check('bare .sh/.rs/.so filenames are not linkified',
+    !/href="http:\/\/(setup\.sh|main\.rs|lib\.so)"/.test(render('Run setup.sh, rebuild main.rs, load lib.so.')));
+  check('bare domain text is not linkified', !/href="http:\/\/example\.com"/.test(render('Visit example.com for more.')));
+  check('explicit https URL still linkifies', /href="https:\/\/example\.com"/.test(render('See https://example.com for more.')));
+  check('bare email still linkifies', /href="mailto:me@example\.com"/.test(render('Ping me@example.com please.')));
+  check('explicit relative markdown link survives', /href="setup\.md"/.test(render('Read [setup](setup.md).')));
+
   for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span']) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) || []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) || []).length;

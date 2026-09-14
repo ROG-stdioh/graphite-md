@@ -35,6 +35,8 @@ export function activate(context: vscode.ExtensionContext) {
       currentPanel.webview.onDidReceiveMessage((message) => {
         if (message?.type === 'toggleTask' && typeof message.line === 'number' && currentDoc) {
           toggleTaskAt(currentDoc, message.line, !!message.checked);
+        } else if (message?.type === 'openLink' && typeof message.href === 'string' && currentDoc) {
+          openLink(message.href, currentDoc);
         }
       });
 
@@ -110,6 +112,64 @@ function toggleTaskAt(doc: vscode.TextDocument, lineIndex: number, checked: bool
   const edit = new vscode.WorkspaceEdit();
   edit.replace(doc.uri, range, checked ? '[x]' : '[ ]');
   vscode.workspace.applyEdit(edit);
+}
+
+/**
+ * A link was clicked in the preview. Absolute URLs belong to the OS; anything
+ * else is a path relative to the document on screen and opens in the editor —
+ * the same split VS Code's own Markdown preview makes.
+ *
+ * This exists because the webview cannot tell the two apart: left to itself it
+ * hands a bare "setup.md" to the OS as an external URL, and since .md is a real
+ * TLD that opens a stranger's website rather than the file next to the doc.
+ */
+async function openLink(href: string, doc: vscode.TextDocument): Promise<void> {
+  // A fragment is handled inside the webview; strip any that rides along on a
+  // file link so it doesn't end up as part of the filename.
+  const [rawPath] = href.split('#');
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    const uri = vscode.Uri.parse(href);
+    // file: links are the user's own workspace — open them in the editor
+    // rather than bouncing them out to the OS.
+    if (uri.scheme === 'file') {
+      await vscode.commands.executeCommand('vscode.open', uri).then(undefined, () =>
+        vscode.window.showWarningMessage(`graphite.md: cannot open ${href}`)
+      );
+    } else {
+      await vscode.env.openExternal(uri);
+    }
+    return;
+  }
+
+  if (!rawPath) return; // pure "#fragment" — nothing to open
+
+  let relative = rawPath;
+  try {
+    relative = decodeURIComponent(rawPath);
+  } catch {
+    // malformed percent-encoding — use the raw form rather than failing
+  }
+
+  // joinPath normalises "..", so ../notes/x.md works, and it keeps whatever
+  // scheme the document uses (file:, vscode-remote:, …) instead of assuming
+  // a local disk. A leading "/" is treated as document-relative, not
+  // workspace-relative — rare in practice, and the built-in preview's
+  // root-relative behaviour is not worth guessing at here.
+  const target = vscode.Uri.joinPath(doc.uri, '..', relative);
+
+  try {
+    const stat = await vscode.workspace.fs.stat(target);
+    if (stat.type === vscode.FileType.Directory) {
+      await vscode.commands.executeCommand('revealInExplorer', target);
+      return;
+    }
+    await vscode.commands.executeCommand('vscode.open', target);
+  } catch {
+    vscode.window.showWarningMessage(
+      `graphite.md: no file at "${relative}" — links resolve relative to ${path.basename(doc.uri.fsPath)}.`
+    );
+  }
 }
 
 function renderIntoPanel(context: vscode.ExtensionContext) {

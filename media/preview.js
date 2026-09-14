@@ -395,6 +395,22 @@
     });
   });
 
+  // ================= real links — the host decides where they go ==========
+  // A plain <a href="setup.md"> left to the webview is handed to VS Code as
+  // an external URL, and because ".md" is Moldova's TLD the browser opens
+  // https://setup.md/ — a stranger's website — instead of the file sitting
+  // next to the document. Same for any relative path. Nothing here decides
+  // the destination; the host resolves it against the document (see
+  // openLink in extension.ts) so the webview never needs to know the path.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (!href || href.startsWith('#')) return; // in-page anchors handled above
+    e.preventDefault();
+    vscode.postMessage({ type: 'openLink', href });
+  });
+
   // ================= halftone dot grid — computed from real pixel size, never stretched =================
   function buildHalftone(el) {
     const w = el.clientWidth;

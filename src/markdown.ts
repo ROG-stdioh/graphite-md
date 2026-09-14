@@ -49,6 +49,21 @@ const md: MarkdownIt = new MarkdownIt({
   },
 });
 
+// Auto-link only what is unambiguously a link.
+//
+// markdown-it's default "fuzzy" mode turns any bare `word.tld` into a link,
+// and a lot of country TLDs are also file extensions — .md (Moldova), .sh
+// (Saint Helena), .rs, .pl, .so, .cc, .ml. So a document that merely mentions
+// README.md, setup.sh or lib.so renders those words as links to
+// http://README.md, http://setup.sh, http://lib.so — which are real domains
+// belonging to other people, and which the preview happily opened in a
+// browser when clicked. In a Markdown preview, "*.md" is overwhelmingly a
+// filename, so fuzzy matching costs far more than it buys.
+//
+// Explicit schemes (http://, https://, mailto:) and bare email addresses are
+// matched by separate, non-fuzzy rules and still linkify.
+md.linkify.set({ fuzzyLink: false });
+
 // Registering a plugin runs at module load time — if it throws, the whole
 // extension fails to even load (this file is require()'d from extension.ts
 // before activate() runs), which is a much worse failure mode than "the
