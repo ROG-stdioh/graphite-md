@@ -338,6 +338,29 @@ check('contentWidth sets the reading-width variable', cw.document.body.style['--
 cw.winHandlers.message.forEach((h) => h({ data: { type: 'somethingElse' } }));
 check('an unrelated message leaves the width alone', cw.document.body.style['--content-width'] === '80%');
 
+// ---- the host's defence against a hand-edited setting ----
+// extension.ts cannot be required outside a running VS Code, so the coercion it
+// uses lives in src/settings.ts and is exercised here rather than not at all.
+// The bug it exists for: getConfiguration().get<number>() is an assertion, not a
+// check, so "contentWidth": "80" in settings.json arrives as a string wearing a
+// number's type and the rest of the extension believes it.
+const { resolveContentWidth, CONTENT_WIDTH_MIN, CONTENT_WIDTH_MAX } = require('../src/settings.ts');
+
+const FALLBACK = 60;
+check('a real number passes through', resolveContentWidth(80, FALLBACK) === 80);
+check('a numeric string is coerced, not rejected', resolveContentWidth('80', FALLBACK) === 80);
+check('a missing setting falls back', resolveContentWidth(undefined, FALLBACK) === FALLBACK);
+check('an empty string is unset, not zero', resolveContentWidth('', FALLBACK) === FALLBACK);
+check('a truncated value like "80px" falls back', resolveContentWidth('80px', FALLBACK) === FALLBACK);
+check('a boolean falls back', resolveContentWidth(true, FALLBACK) === FALLBACK);
+check('an object falls back', resolveContentWidth({ width: 80 }, FALLBACK) === FALLBACK);
+check('NaN falls back', resolveContentWidth(Number.NaN, FALLBACK) === FALLBACK);
+check('Infinity falls back', resolveContentWidth(Number.POSITIVE_INFINITY, FALLBACK) === FALLBACK);
+check('a value below the contributed range clamps up',
+  resolveContentWidth(5, FALLBACK) === CONTENT_WIDTH_MIN);
+check('a value above the contributed range clamps down',
+  resolveContentWidth(500, FALLBACK) === CONTENT_WIDTH_MAX);
+
 // ---- scroll position survives a re-render ----
 const s1 = run('');
 s1.byId.contentPane.scrollTop = 250;

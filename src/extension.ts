@@ -3,6 +3,7 @@ import * as path from 'path';
 import { renderMarkdown } from './markdown';
 import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview, PreviewData } from './shared/protocol';
+import { resolveContentWidth, CONTENT_WIDTH_MIN } from './settings';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -104,7 +105,13 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function getContentWidth(): number {
-  return vscode.workspace.getConfiguration('graphiteMd').get<number>('contentWidth', 60);
+  const config = vscode.workspace.getConfiguration('graphiteMd');
+  // inspect() rather than a literal 60: the default belongs to the contribution
+  // in package.json, and a second copy here is how the two drift apart.
+  const declared = config.inspect<unknown>('contentWidth')?.defaultValue;
+  const fallback = typeof declared === 'number' ? declared : CONTENT_WIDTH_MIN;
+  const raw: unknown = config.get('contentWidth');
+  return resolveContentWidth(raw, fallback);
 }
 
 const WIDTH_TIP_DISMISSED_KEY = 'graphiteMd.hideWidthTip';

@@ -70,6 +70,13 @@ the webview ever disagree the messages vanish and every other assertion here
 still passes. The guard is separately shown rejecting malformed input, since a
 guard that accepts everything would satisfy the first check on its own.
 
+And it covers `resolveContentWidth` from `src/settings.ts`. That one lives
+outside `extension.ts` for a reason worth keeping: `extension.ts` cannot be
+required outside a running VS Code, so a setting coercion left inside it is
+untestable until there are integration tests, and the input it has to survive —
+a hand-edited `"contentWidth": "80"` arriving as a string — is exactly the kind
+that goes wrong quietly.
+
 ## Why no "Custom CSS and JS Loader"?
 
 Not needed. That extension patches VS Code's own `workbench.html` to inject
