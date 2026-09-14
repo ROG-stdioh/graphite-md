@@ -6,6 +6,10 @@ Mermaid diagrams, checklists, and a dark Claude-branded theme.
 
 ## Setup
 
+Node 24 or newer. The check scripts require `src/shared/protocol.ts`
+directly and rely on Node stripping the types itself, which 24 does without
+a flag.
+
 ```bash
 npm install
 npm run build
@@ -58,6 +62,13 @@ It covers the outline graph's edge layout, the messages the webview sends the
 host (`toggleTask`, `openLink`), the one-view-open accordion, the reading-width
 message, and the scroll position surviving a re-render. The last four are the
 host contract, which nothing checked before.
+
+It also runs the host's `isWebviewToHost` guard over the payloads the webview
+actually posted, not over examples written to match it. The host drops any
+message that fails that guard and returns without a word, so if the guard and
+the webview ever disagree the messages vanish and every other assertion here
+still passes. The guard is separately shown rejecting malformed input, since a
+guard that accepts everything would satisfy the first check on its own.
 
 ## Why no "Custom CSS and JS Loader"?
 

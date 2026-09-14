@@ -12,12 +12,10 @@ import markdownItMark from 'markdown-it-mark';
 import markdownItFootnote from 'markdown-it-footnote';
 import katex from 'katex';
 import hljs from 'highlight.js';
-
-export interface TocNode {
-  label: string;
-  target: string;
-  children?: TocNode[];
-}
+// TocNode lives in the shared contract, not here: it is the shape of the
+// outline data that crosses to the webview, so the host and the webview have to
+// name the same type or the guard in protocol.ts is checking something else.
+import type { TocNode } from './shared/protocol';
 
 export interface RenderResult {
   html: string;

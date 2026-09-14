@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { renderMarkdown } from './markdown';
+import { isWebviewToHost } from './shared/protocol';
+import type { HostToWebview, PreviewData } from './shared/protocol';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -32,11 +34,32 @@ export function activate(context: vscode.ExtensionContext) {
         currentPanel = undefined;
       });
 
-      currentPanel.webview.onDidReceiveMessage((message) => {
-        if (message?.type === 'toggleTask' && typeof message.line === 'number' && currentDoc) {
-          toggleTaskAt(currentDoc, message.line, !!message.checked);
-        } else if (message?.type === 'openLink' && typeof message.href === 'string' && currentDoc) {
-          openLink(message.href, currentDoc);
+      // `message` arrives as `any` — onDidReceiveMessage is typed that way, and
+      // it is telling the truth: this is a different script in a different
+      // context, and nothing about its shape is guaranteed. The guard is what
+      // makes the parameter `unknown` and earns the narrowing that follows.
+      currentPanel.webview.onDidReceiveMessage((message: unknown) => {
+        if (!isWebviewToHost(message)) return;
+        const doc = currentDoc;
+        if (!doc) return;
+        // A switch with no default, so switch-exhaustiveness-check — the rule
+        // this boundary exists to give work to — fails the build when a variant
+        // is added here and not handled. An if/else would compile: the else
+        // branch would just quietly become "everything that is not toggleTask".
+        switch (message.type) {
+          case 'toggleTask':
+            toggleTaskAt(doc, message.line, message.checked);
+            return;
+          case 'openLink':
+            // Not `void openLink(...)`: that discards rejections, and openLink
+            // awaits openExternal (which rejects when the OS has no handler for
+            // the scheme) and Uri.parse (which can throw on a malformed href).
+            // Losing those to an unhandled rejection leaves a click on a broken
+            // link doing nothing at all, with nothing in the log.
+            openLink(message.href, doc).catch((err: unknown) => {
+              console.error('graphite.md: failed to open link', err);
+            });
+            return;
         }
       });
 
@@ -73,8 +96,8 @@ export function activate(context: vscode.ExtensionContext) {
     // without a full re-render (full re-render would reset scroll position)
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (currentPanel && e.affectsConfiguration('graphiteMd.contentWidth')) {
-        const width = getContentWidth();
-        currentPanel.webview.postMessage({ type: 'contentWidth', value: width });
+        const message: HostToWebview = { type: 'contentWidth', value: getContentWidth() };
+        currentPanel.webview.postMessage(message);
       }
     })
   );
@@ -208,11 +231,8 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
 function buildWebviewHtml(
   context: vscode.ExtensionContext,
   webview: vscode.Webview,
-  data: {
+  data: PreviewData & {
     bodyHtml: string;
-    headings: unknown;
-    tables: unknown;
-    diagrams: unknown;
     contentWidth: number;
     doc: vscode.TextDocument;
   }
@@ -243,11 +263,11 @@ function buildWebviewHtml(
     `script-src 'nonce-${nonce}'`,
   ].join('; ');
 
-  const initialData = JSON.stringify({
+  const initialData: PreviewData = {
     headings: data.headings,
     tables: data.tables,
     diagrams: data.diagrams,
-  });
+  };
 
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -288,7 +308,7 @@ function buildWebviewHtml(
     </div>
   </div>
 
-  <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${initialData};</script>
+  <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${JSON.stringify(initialData)};</script>
   <script nonce="${nonce}" src="${mediaUri('vendor/mermaid.min.js')}"></script>
   <script nonce="${nonce}" src="${mediaUri('preview.js')}?v=${MEDIA_VERSION}"></script>
 </body>

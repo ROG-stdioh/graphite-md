@@ -351,5 +351,31 @@ check('a re-render restores the stashed scroll position', s2.byId.contentPane.sc
 const s3 = run('', { state: {} });
 check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollTop === 0);
 
+// ---- the host's guard must accept what this webview actually sends ----
+// The host runs isWebviewToHost() over every message before acting on it. If
+// the guard and the webview ever disagree, the webview posts, the host drops it
+// on the floor and returns, and none of the assertions above notice — they
+// inspect cl.posted and lk.posted directly, which is the webview's side of the
+// wire only. So the guard is run against the real recorded payloads rather than
+// against examples written here to match it.
+//
+// protocol.ts is TypeScript and required directly. Node strips the types; it is
+// why the check scripts need Node 24, which is also what CI pins.
+const { isWebviewToHost } = require('../src/shared/protocol.ts');
+
+const sent = [...cl.posted, ...lk.posted];
+check('the webview posted messages to check', sent.length > 0);
+check('every message the webview sends passes the host guard', sent.every((m) => isWebviewToHost(m)));
+
+// A guard that says yes to everything would pass the check above, so it has to
+// be shown saying no.
+check('the host guard rejects a toggleTask with no checked flag',
+  !isWebviewToHost({ type: 'toggleTask', line: 5 }));
+check('the host guard rejects a toggleTask with a string line',
+  !isWebviewToHost({ type: 'toggleTask', line: '5', checked: true }));
+check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
+check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
+check('the host guard rejects null', !isWebviewToHost(null));
+
 console.log(failures === 0 ? '\nAll graph checks passed.' : `\n${failures} graph check(s) FAILED.`);
 process.exitCode = failures === 0 ? 0 : 1;
