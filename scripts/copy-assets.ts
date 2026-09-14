@@ -6,11 +6,14 @@
 //   NOT need katex.min.js or auto-render.min.js in the webview at all.
 // - Mermaid: needs a real DOM to lay diagrams out, so it stays client-side —
 //   we ship its single bundled file and run it inside the webview.
+//
+// `require` rather than `import` keeps this file CommonJS, which is what lets
+// Node run it directly; the cast reattaches the module type @types/node widens
+// to `any`. See esbuild.ts for the full note.
+const fs = require('fs') as typeof import('fs');
+const path = require('path') as typeof import('path');
 
-const fs = require('fs');
-const path = require('path');
-
-function copyDir(src, dest) {
+function copyDir(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const s = path.join(src, entry.name);

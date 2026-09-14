@@ -2,13 +2,36 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
 
   // No `entry` list. Knip's esbuild plugin reads entryPoints straight out of
-  // esbuild.js, which finds both the extension host (src/extension.ts) and the
-  // webview (src/webview/main.ts) — and, unlike a list written here, cannot
-  // drift from the build when an entry moves. An earlier version of this file
-  // named media/preview.js instead, which is now generated output and
-  // gitignored, so knip never sees it.
+  // esbuild.ts — its file list is esbuild.{js,mjs,cjs,ts,mts,cts}, so the .ts
+  // build script is found the same way the .js one was. That finds both the
+  // extension host (src/extension.ts) and the webview (src/webview/main.ts) —
+  // and, unlike a list written here, cannot drift from the build when an entry
+  // moves. An earlier version of this file named media/preview.js instead,
+  // which is now generated output and gitignored, so knip never sees it.
 
-  // Reached only as a string, never as an import: copy-assets.js copies it out
+  "cucumber": {
+    // knip's cucumber plugin reads the suite's globs out of the config file's
+    // top-level `import` key — and this project's cucumber.js nests them under
+    // `default`, which is the profile structure cucumber requires of a
+    // JavaScript config. The plugin therefore finds no `import` and falls back
+    // to its own entry pattern, `features/**/*.@(js|cjs|mjs)`: a pattern that
+    // stopped matching anything the moment these files were renamed to `.ts`,
+    // and reported all four as dead code. Verified in the installed plugin
+    // (knip/dist/plugins/cucumber/index.js) rather than inferred.
+    //
+    // The whole directory rather than cucumber.js's two globs, so that a new
+    // step directory cannot drift out of this list the way it would out of a
+    // copy of them.
+    "entry": ["features/**/*.ts"]
+  },
+
+  // Not listed here: the same blindness, one layer in, for CONTENT_WIDTH_MAX.
+  // `ignoreIssues` takes issue *types* rather than symbol names in knip 6, so an
+  // exemption there would have to exempt every unused export in settings.ts.
+  // The symbol carries a `@public` tag instead, which is knip's own escape hatch
+  // and is narrow enough that a new dead export still fails. See its comment.
+
+  // Reached only as a string, never as an import: copy-assets.ts copies it out
   // of node_modules by path, and extension.ts names the copied bundle in a
   // <script src>. Taking knip's advice would ship a preview with no diagrams.
   "ignoreDependencies": ["mermaid"]

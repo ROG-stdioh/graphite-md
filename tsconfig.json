@@ -11,10 +11,18 @@
     // it (TS2591, found on the first run of this config).
     "types": ["node"]
   },
+  // Stated rather than left to the default. With no `include`, TypeScript uses
+  // `**/*` and this program becomes "every .ts file in the repo except these" —
+  // which is how it came to swallow the whole tooling program the moment those
+  // files were renamed from .js: nine TS6059s, one per file that is not under
+  // `rootDir: src`. An exclude list would fix that today and break again the
+  // next time a script is added, so the program is defined by what it *is* —
+  // the extension's own source — and a new top-level script lands in
+  // tsconfig.node.json instead of here.
+  "include": ["src/**/*.ts"],
   // The webview is a separate program with a different lib and no node types —
   // src/webview/tsconfig.json, which TypeScript's server finds as the nearest
-  // config to those files. Without this exclusion the root program's default
-  // `**/*` include would sweep the webview in and check it against the wrong
-  // environment.
+  // config to those files. Without this exclusion the include above would check
+  // the webview against the wrong environment.
   "exclude": ["node_modules", ".vscode-test", "out", "src/webview"]
 }
