@@ -1,0 +1,274 @@
+:root{
+  --bg: #262624;
+  --bg-sidebar: #201F1D;
+  --bg-code: #1C1B19;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.13);
+  --ink: #F2EFE7;
+  --ink-soft: #BFBBB0;
+  --muted: #837F76;
+  --accent: #E0785A;
+  --accent-soft: rgba(224,120,90,0.16);
+  --accent-tint: rgba(224,120,90,0.10);
+  --serif: "Iowan Old Style", "Source Serif Pro", Georgia, "Palatino Linotype", serif;
+  --sans: -apple-system, "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Berkeley Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --content-width: 60%;
+}
+
+*{ box-sizing: border-box; }
+html,body{ margin:0; height:100%; }
+body{
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+/* ---------- Layout shell ---------- */
+.shell{ display:flex; flex: 1; min-height: 0; }
+
+/* ---------- generic scroll-wrap ---------- */
+.scroll-wrap{ position: relative; min-height: 0; overflow: hidden; }
+.scroll-body{ height: 100%; overflow-y: scroll; scrollbar-width: none; -ms-overflow-style: none; }
+.scroll-body::-webkit-scrollbar{ width: 0; height: 0; }
+.scroll-track{ position: absolute; top: 4px; bottom: 4px; right: 3px; width: 6px; pointer-events: none; }
+.scroll-thumb{
+  position: absolute; left: 0; width: 100%;
+  border-radius: 4px; background: rgba(255,255,255,0.14);
+  opacity: 0; transition: opacity .25s ease, background .15s ease, width .15s ease, left .15s ease;
+  pointer-events: auto; cursor: pointer;
+}
+.scroll-thumb:hover, .scroll-thumb.dragging{ background: rgba(255,255,255,0.28); width: 8px; left: -1px; }
+.scroll-wrap.scrolling .scroll-thumb, .scroll-wrap:hover .scroll-thumb{ opacity: 1; }
+
+/* ---------- Center content ---------- */
+.content-pane-wrap{ flex: 1; min-width:0; }
+.content-pane{ padding: 40px 24px 160px; }
+.content-inner{ width: var(--content-width); min-width: 320px; margin: 0 auto; }
+
+.doc-title{ font-family: var(--serif); font-size: 34px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 8px; color: var(--ink); }
+.doc-sub{ color: var(--ink-soft); font-size: 15.5px; margin: 0 0 34px; line-height: 1.55; font-family: var(--serif); }
+
+.section{ margin-bottom: 4px; }
+/* chevron hangs in the left margin so heading text lines up flush with the
+   paragraph text below it, instead of being pushed right */
+.section-head{ position: relative; cursor: pointer; padding: 6px 0; }
+h2.section-head{ font-family: var(--serif); font-size: 22px; font-weight: 600; margin: 30px 0 4px; color: var(--ink); }
+h3.section-head{ font-family: var(--serif); font-size: 17px; font-weight: 600; margin: 22px 0 4px; color: var(--ink); }
+h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); font-size: 15px; font-weight: 600; margin: 18px 0 4px; color: var(--ink); }
+.section-head .chev{
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform .15s ease;
+}
+.section-head .chev.collapsed{ transform: translateY(-50%) rotate(-90deg); }
+.section-head:hover .chev{ color: var(--accent); }
+.section-body.collapsed{ display:none; }
+
+.content-pane p{ font-family: var(--serif); font-size: 15.5px; line-height: 1.7; color: var(--ink-soft); margin: 12px 0; }
+.content-pane ul, .content-pane ol{ font-family: var(--serif); font-size: 15.5px; line-height: 1.7; color: var(--ink-soft); margin: 12px 0; padding-left: 1.4em; }
+.content-pane li{ margin: 4px 0; }
+.content-pane li.task-list-item{ list-style: none; }
+.task-checkbox{
+  display: inline-block;
+  width: 14px; height: 14px;
+  margin-right: 8px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.task-checkbox:hover{ border-color: var(--accent); }
+.task-checkbox.checked{ background: var(--accent); border-color: var(--accent); }
+.task-checkbox.checked::after{
+  content: '';
+  position: absolute;
+  left: 3px; top: -1px;
+  width: 4px; height: 8px;
+  border: solid var(--bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.content-pane code{ font-family: var(--mono); font-size: 13px; background: var(--bg-code); padding: 1px 5px; border-radius: 4px; color: #E89474; }
+.content-pane pre{ background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 14px 0; }
+.content-pane pre code{ background: none; padding: 0; color: var(--ink); font-size: 13px; line-height: 1.6; }
+
+table.md-table{ border-collapse: collapse; width: 100%; margin: 16px 0; font-family: var(--sans); font-size: 13.5px; }
+table.md-table th, table.md-table td{ border: 1px solid var(--border-strong); padding: 8px 12px; text-align: left; vertical-align: middle; }
+table.md-table th{ background: var(--bg-sidebar); font-weight: 600; color: var(--ink); }
+table.md-table td{ color: var(--ink-soft); }
+
+/* math — rendered server-side by KaTeX (see src/markdown.ts), styled here.
+   .katex-display is KaTeX's own class for block ($$...$$) math; plain .katex
+   is what's left for inline ($...$) math, so we key directly off those
+   instead of adding our own wrapper markup. */
+.katex-display{
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin: 16px 0 !important;
+  overflow-x: auto;
+}
+.katex{
+  font-family: var(--serif) !important;
+  font-style: italic;
+  color: var(--ink) !important;
+  background: var(--bg-code);
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.katex *{ color: var(--ink) !important; }
+/* undo the inline pill styling for the math nested inside a display block —
+   otherwise it looks like a pill inside a card */
+.katex-display .katex{ background: none; padding: 0; border-radius: 0; }
+
+/* mermaid */
+.mermaid{ margin: 16px 0; background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 14px; overflow-x: auto; }
+
+/* callout / blockquote — rounded, orange rail, background dissolves via a
+   halftone dot grid drawn at runtime in preview.js (buildHalftone), sized
+   from the element's real pixel dimensions so it never stretches */
+.callout{
+  position: relative;
+  /* isolation makes each callout its own stacking context, so a nested
+     quote's halftone svg (z-index: -1) can never escape upward and paint
+     over the nested quote's own content — without it, the inner dots sat
+     in the same stacking context as the outer ones and covered headings,
+     lists and code blocks inside nested quotes */
+  isolation: isolate;
+  border-radius: 8px;
+  margin: 18px 0;
+  padding: 14px 20px 14px 22px;
+  overflow: hidden;
+}
+.callout::after{
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  z-index: 2;
+}
+/* -1 + the .callout isolation above puts the dots behind every piece of
+   content (in-flow text, nested quotes, code, lists) but in front of the
+   callout's own transparent background */
+.halftone-svg{ position: absolute; inset: 0; z-index: -1; display:block; }
+.callout p{
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.callout p + p{ margin-top: 10px; }
+/* headings/lists/code that appear inside a quote are not .section-heads,
+   so give them explicit styling instead of browser defaults */
+.callout h1, .callout h2, .callout h3, .callout h4, .callout h5, .callout h6{
+  font-family: var(--serif);
+  font-weight: 600;
+  color: var(--ink);
+  margin: 14px 0 6px;
+}
+.callout h1, .callout h2{ font-size: 18px; }
+.callout h3, .callout h4, .callout h5, .callout h6{ font-size: 15.5px; }
+.callout ul, .callout ol{ margin: 8px 0; }
+.callout pre{ margin: 10px 0; }
+
+/* ---------- Right "on this page" — accordion, one section open at most ---------- */
+.toc-pane-wrap{ width: 300px; flex-shrink: 0; border-left: 1px solid var(--border); }
+.toc-pane{ padding: 22px 14px; }
+.toc-pane .pane-label{ font-size: 10.5px; color: var(--muted); font-weight: 600; margin-bottom: 12px; padding-left: 4px; }
+
+.accordion-section{ margin-bottom: 2px; }
+.accordion-header{
+  display:flex; align-items:center; gap:7px; width: 100%;
+  background:none; border:none; text-align:left;
+  color: var(--ink-soft); font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+  padding: 9px 8px; cursor:pointer; border-radius: 6px;
+}
+.accordion-header:hover{ background: rgba(255,255,255,0.04); }
+.accordion-header .chev{ font-size: 9px; color: var(--muted); transition: transform .15s ease; flex-shrink:0; }
+.accordion-header:not(.expanded) .chev{ transform: rotate(-90deg); }
+.accordion-header.expanded{ color: var(--ink); }
+.accordion-header.expanded .chev{ color: var(--accent); }
+
+.graph{ position: relative; padding-top: 4px; padding-bottom: 10px; }
+.graph.collapsed{ display: none; }
+.graph svg{ position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+
+/* row indent + dot x-position are set inline by preview.js per depth
+   (14px trunk, +20px per nesting level), so the CSS stays depth-agnostic */
+.toc-row{ position: relative; display: flex; align-items: center; min-height: 32px; cursor: pointer; z-index: 1; }
+.toc-row .label{
+  flex: 1; min-width: 0; /* flex child: allow shrink so ellipsis can engage */
+  font-size: 12.8px; color: var(--muted); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .2s ease;
+}
+.toc-row.depth-0 .label{ font-weight: 600; }
+.toc-row:hover .label{ color: var(--ink-soft); }
+.toc-row.active .label{ color: var(--accent); }
+
+.toc-dot{
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--bg); border: 2px solid var(--muted);
+  transform: translate(-50%, -50%); top: 50%;
+  transition: border-color .25s ease, background .25s ease, box-shadow .25s ease;
+  z-index: 2;
+}
+.toc-row:not(.depth-0) .toc-dot{ width: 7px; height: 7px; }
+.toc-row.active .toc-dot{ border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.toc-dot.pulse{ animation: dotPulse .6s ease; }
+@keyframes dotPulse{
+  0%   { box-shadow: 0 0 0 0 var(--accent-soft); }
+  40%  { box-shadow: 0 0 0 6px var(--accent-soft); }
+  100% { box-shadow: 0 0 0 3px var(--accent-soft); }
+}
+
+.toc-empty{ padding: 6px 8px 10px; font-size: 12px; color: var(--muted); }
+
+/* ---------- inline extensions: sup/sub/ins/mark ---------- */
+.content-pane sup, .content-pane sub{ font-size: 0.72em; line-height: 1; }
+.content-pane ins{ text-decoration: underline; text-underline-offset: 2px; color: var(--ink); }
+.content-pane mark{ background: var(--accent-tint); color: var(--ink); padding: 0 3px; border-radius: 3px; }
+
+/* ---------- footnotes (markdown-it-footnote, rendered server-side as a
+   document footer — see the footnote_block routing in src/markdown.ts) ---------- */
+.content-pane .footnotes{
+  border-top: 1px solid var(--border);
+  margin: 44px 0 0;
+  padding: 18px 0 0;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+.content-pane .footnotes .footnote-item{ margin: 6px 0; line-height: 1.6; }
+.content-pane .footnotes .footnote-item::marker{ color: var(--accent); }
+.content-pane .footnote-backref{ color: var(--accent); text-decoration: none; margin-left: 4px; }
+
+/* ---------- syntax highlighting (highlight.js, server-side via markdown-it's
+   highlight option) — a small hand-tuned palette in graphite's own colors,
+   so highlighted code matches the theme instead of shipping a whole
+   third-party theme css ---------- */
+.content-pane pre code.hljs{ color: var(--ink); }
+.hljs-comment, .hljs-quote{ color: var(--muted); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type, .hljs-section, .hljs-link{ color: #E89474; }
+.hljs-string, .hljs-regexp, .hljs-addition{ color: #A9C18C; }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-meta, .hljs-attribute{ color: #D9B36C; }
+.hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-name, .hljs-built_in, .hljs-attr{ color: var(--accent); }
+.hljs-variable, .hljs-template-variable, .hljs-selector-id, .hljs-selector-class{ color: #8FB7D4; }
+.hljs-deletion{ color: #D98C8C; }
+.hljs-emphasis{ font-style: italic; }
+.hljs-strong{ font-weight: 600; }

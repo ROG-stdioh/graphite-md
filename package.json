@@ -1,0 +1,96 @@
+{
+  "name": "graphite-md",
+  "displayName": "graphite.md",
+  "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-id",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "graphiteMd.open",
+        "title": "Open Preview",
+        "category": "graphite.md",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "graphiteMd.openToSide",
+        "title": "Open Preview to the Side",
+        "category": "graphite.md",
+        "icon": "$(open-preview)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "graphiteMd.openToSide",
+          "when": "editorLangId == markdown",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "graphiteMd.open",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "graphiteMd.openToSide",
+          "when": "editorLangId == markdown"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "graphiteMd.openToSide",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
+        "when": "editorLangId == markdown"
+      }
+    ],
+    "configuration": {
+      "title": "graphite.md",
+      "properties": {
+        "graphiteMd.contentWidth": {
+          "type": "number",
+          "default": 60,
+          "minimum": 40,
+          "maximum": 100,
+          "description": "Width of the reading column, as a percentage of the available preview pane width. Example: \"graphiteMd.contentWidth\": 60"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js && node scripts/copy-assets.js",
+    "watch": "node esbuild.js --watch"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "katex": "^0.16.9",
+    "markdown-it": "^14.1.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-ins": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
+    "markdown-it-texmath": "^1.0.0",
+    "mermaid": "^10.9.1"
+  }
+}
