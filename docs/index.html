@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>graphite.md — Documentation</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>graphite.md — a richer Markdown preview for VS Code</title>
+<!-- Inline so the page stays a single self-contained file on GitHub Pages. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23262624'/%3E%3Cpath d='M11 9v15' stroke='%23837F76' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M11 11c0 4.5 10 2 10 6' stroke='%23E0785A' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='11' r='3' fill='%23E0785A'/%3E%3Ccircle cx='21' cy='19' r='2.5' fill='%23F2EFE7'/%3E%3C/svg%3E">
 <style>
   :root{
     --bg: #262624;
@@ -83,22 +85,56 @@
   th{ background: var(--bg-sidebar); color: var(--ink); font-weight:600; }
   td{ color: var(--ink-soft); }
 
+  /* Mirrors the real markup: <blockquote class="callout"> with a halftone dot
+     field behind the text. */
   .callout{
     position:relative; border-radius:8px; margin:18px 0; padding:14px 20px 14px 22px;
     background: var(--bg-code);
+    background-image: radial-gradient(circle, rgba(224,120,90,0.15) 1.5px, transparent 1.6px);
+    background-size: 9px 9px;
+    overflow:hidden;
   }
   .callout::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); border-radius:8px 0 0 8px; }
-  .callout p{ margin:0; font-style: italic; }
+  .callout p{ margin:0; }
 
-  .task{ display:flex; align-items:flex-start; gap:8px; margin:6px 0; }
-  .task .box{ width:14px; height:14px; margin-top:4px; border:1.5px solid var(--muted); border-radius:4px; flex-shrink:0; position:relative; }
-  .task .box.checked{ background:var(--accent); border-color:var(--accent); }
-  .task .box.checked::after{ content:''; position:absolute; left:3px; top:0; width:4px; height:8px; border:solid var(--bg); border-width:0 2px 2px 0; transform:rotate(45deg); }
-  .task span.label{ font-family: var(--serif); font-size:15.5px; color: var(--ink-soft); line-height:1.5; }
+  /* Mirrors the real markup: <li class="task-list-item"><span class="task-checkbox"> */
+  .task-list-item{ list-style:none; display:flex; align-items:flex-start; gap:8px; margin:6px 0; }
+  .task-checkbox{ width:14px; height:14px; margin-top:4px; border:1.5px solid var(--muted); border-radius:4px; flex-shrink:0; position:relative; }
+  .task-checkbox.checked{ background:var(--accent); border-color:var(--accent); }
+  .task-checkbox.checked::after{ content:''; position:absolute; left:3px; top:0; width:4px; height:8px; border:solid var(--bg); border-width:0 2px 2px 0; transform:rotate(45deg); }
 
   kbd{ font-family: var(--mono); font-size:12px; background: var(--bg-sidebar); border:1px solid var(--border-strong); border-radius:5px; padding:2px 6px; color: var(--ink); }
 
   .badge{ display:inline-block; font-family: var(--mono); font-size:11px; background: var(--accent-soft); color: var(--accent); padding:2px 8px; border-radius:100px; margin-bottom:14px; }
+
+  header .spacer{ flex:1; }
+  .actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .actions a{
+    font-family: var(--sans); font-size:12.5px; font-weight:600;
+    padding:7px 13px; border-radius:7px; border:1px solid var(--border-strong);
+    color: var(--ink-soft); white-space:nowrap;
+  }
+  .actions a:hover{ text-decoration:none; border-color:var(--accent); color:var(--ink); }
+  .actions a.primary{ background:var(--accent); border-color:var(--accent); color:#262624; }
+  .actions a.primary:hover{ color:#262624; }
+
+  /* Static illustration of the outline pane — the same trunk-and-curved-branch
+     shape media/preview.js draws, with the active ancestor chain in accent. */
+  .outline-figure{
+    margin:16px 0; padding:16px 18px; border:1px solid var(--border);
+    border-radius:8px; background:var(--bg-sidebar);
+  }
+  .outline-figure svg{ display:block; width:100%; max-width:250px; height:auto; }
+  .outline-figure figcaption{ font-family:var(--sans); font-size:12px; color:var(--muted); margin-top:12px; line-height:1.5; }
+
+  @media (max-width: 620px){
+    header{ padding:16px 18px; flex-wrap:wrap; }
+    nav.tabs{ padding:0 18px; }
+    main{ padding:26px 18px 70px; }
+    h1{ font-size:25px; }
+    h2{ font-size:19px; }
+    .outline-figure svg{ max-width:100%; }
+  }
 </style>
 </head>
 <body>
@@ -108,6 +144,12 @@
     <div>
       <div class="title">graphite.md</div>
       <div class="subtitle">A richer Markdown preview for VS Code</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="actions">
+      <a class="primary" href="https://marketplace.visualstudio.com/items?itemName=rog-stdioh.graphite-md">Install</a>
+      <a href="https://github.com/ROG-stdioh/graphite-md">GitHub</a>
+      <a href="https://github.com/ROG-stdioh/graphite-md/issues">Issues</a>
     </div>
   </header>
 
@@ -120,6 +162,7 @@
 
     <!-- ============================= README TAB ============================= -->
     <div class="page active" id="page-readme">
+      <!-- Keep in sync with the "version" field in package.json -->
       <span class="badge">v0.0.1</span>
       <h1>graphite.md</h1>
       <p>A Markdown preview for people who read a lot of Markdown: collapsible sections, a git-graph style outline, checklists, math, and diagrams — in a dark, distraction-free theme.</p>
@@ -150,9 +193,17 @@
       <h3>Callouts</h3>
       <p>Blockquotes (<code>&gt;</code>) get a distinct treatment so notes and asides stand out from body text.</p>
 
+      <h3>Rich inline syntax</h3>
+      <p>Superscript (<code>^2^</code>), subscript (<code>~2~</code>), underline (<code>++text++</code>), highlighting (<code>==text==</code>), strikethrough (<code>~~text~~</code>), and footnotes (<code>[^1]</code>) all render natively.</p>
+
+      <h3>Syntax highlighting</h3>
+      <p>Fenced code blocks are highlighted with highlight.js, tinted to match the graphite theme.</p>
+
       <h3>Tunable reading width</h3>
-      <p>Drag the width control in the preview's breadcrumb bar, or set it once in <code>settings.json</code>:</p>
-      <pre><code>"graphiteMd.contentWidth": 60</code></pre>
+      <p>Set it once in <code>settings.json</code> — the preview picks the new width up immediately, no reload:</p>
+      <pre><code>{
+  "graphiteMd.contentWidth": 60
+}</code></pre>
 
       <h2>Usage</h2>
       <ol>
@@ -173,9 +224,11 @@
       <h2>Known limitations</h2>
       <ul>
         <li>Merged-cell tables aren't supported yet — a syntax for this is still being designed.</li>
-        <li>Fenced code blocks don't have syntax highlighting yet.</li>
-        <li>The preview doesn't yet follow the editor cursor (or vice versa).</li>
+        <li>The preview doesn't yet follow the editor cursor (or vice versa). Re-renders do preserve your scroll position.</li>
       </ul>
+
+      <h2>Contributing</h2>
+      <p>Build instructions and an overview of how the extension is put together are in <a href="https://github.com/ROG-stdioh/graphite-md/blob/main/DEVELOPMENT.md">DEVELOPMENT.md</a>. Bug reports and pull requests are welcome on <a href="https://github.com/ROG-stdioh/graphite-md">GitHub</a>.</p>
 
       <h2>License</h2>
       <p>MIT</p>
@@ -206,13 +259,43 @@
       </ul>
       <p>Clicking any node soft-scrolls the reading pane to that spot, opens any collapsed parent sections needed to reveal it (siblings stay untouched), and briefly pulses the node so you can confirm where you landed.</p>
 
+      <figure class="outline-figure">
+        <svg viewBox="0 0 240 224" role="img" aria-label="The outline drawn as a graph: a vertical trunk of top-level sections, with nested headings curving off it. The path to the current section is highlighted.">
+          <line x1="14" y1="16" x2="14" y2="208" stroke="#837F76" stroke-width="1" opacity="0.45"/>
+          <path d="M14,16 C14,32 34,32 34,48" fill="none" stroke="#E0785A" stroke-width="1.6" opacity="0.9"/>
+          <path d="M34,48 C34,64 54,64 54,80" fill="none" stroke="#E0785A" stroke-width="1.6" opacity="0.9"/>
+          <path d="M54,80 C54,96 74,96 74,112" fill="none" stroke="#837F76" stroke-width="1.6" opacity="0.45"/>
+          <path d="M74,112 C74,128 94,128 94,144" fill="none" stroke="#837F76" stroke-width="1.6" opacity="0.45"/>
+          <path d="M14,16 C14,96 34,96 34,176" fill="none" stroke="#837F76" stroke-width="1.6" opacity="0.45"/>
+          <circle cx="14" cy="16" r="3.5" fill="#E0785A"/>
+          <circle cx="34" cy="48" r="3" fill="#E0785A"/>
+          <circle cx="54" cy="80" r="3" fill="#E0785A"/>
+          <circle cx="74" cy="112" r="2.6" fill="#837F76"/>
+          <circle cx="94" cy="144" r="2.6" fill="#837F76"/>
+          <circle cx="34" cy="176" r="2.6" fill="#837F76"/>
+          <circle cx="14" cy="208" r="3.5" fill="#837F76"/>
+          <g font-family="-apple-system, Segoe UI, Inter, sans-serif" font-size="11">
+            <text x="24" y="20" fill="#F2EFE7">Setup</text>
+            <text x="44" y="52" fill="#F2EFE7">Install</text>
+            <text x="64" y="84" fill="#F2EFE7">Requirements</text>
+            <text x="84" y="116" fill="#837F76">Node</text>
+            <text x="104" y="148" fill="#837F76">Version</text>
+            <text x="44" y="180" fill="#837F76">Configure</text>
+            <text x="24" y="212" fill="#837F76">Usage</text>
+          </g>
+        </svg>
+        <figcaption>Depth nests by curving right; siblings hang off a shared vertical run. The path to the section you're reading is drawn in the accent colour as you scroll.</figcaption>
+      </figure>
+
       <h2>Checklists</h2>
       <p>Write these like any GitHub-flavored checklist:</p>
       <pre><code>- [ ] Not done yet
 - [x] Done</code></pre>
       <p>They render as clickable boxes:</p>
-      <div class="task"><div class="box"></div><span class="label">Not done yet</span></div>
-      <div class="task"><div class="box checked"></div><span class="label">Done</span></div>
+      <ul>
+        <li class="task-list-item"><span class="task-checkbox"></span>Not done yet</li>
+        <li class="task-list-item"><span class="task-checkbox checked"></span>Done</li>
+      </ul>
       <p>Clicking a box edits the underlying <code>[ ]</code> / <code>[x]</code> in your markdown file directly — the preview never holds state your file doesn't also have.</p>
 
       <h2>Math</h2>
@@ -234,14 +317,39 @@ graph TD
       <p>A normal blockquote:</p>
       <pre><code>&gt; Percentages resolve against the parent's content box.</code></pre>
       <p>renders as:</p>
-      <div class="callout"><p>Percentages resolve against the parent's content box.</p></div>
+      <blockquote class="callout"><p>Percentages resolve against the parent's content box.</p></blockquote>
+
+      <h2>Rich inline syntax</h2>
+      <p>Beyond the usual emphasis, these all render natively:</p>
+      <table>
+        <tr><th>Write</th><th>Get</th></tr>
+        <tr><td><code>^2^</code></td><td>superscript</td></tr>
+        <tr><td><code>~2~</code></td><td>subscript</td></tr>
+        <tr><td><code>++text++</code></td><td>underlined text</td></tr>
+        <tr><td><code>==text==</code></td><td>highlighted text</td></tr>
+        <tr><td><code>~~text~~</code></td><td>strikethrough</td></tr>
+        <tr><td><code>[^1]</code></td><td>a footnote reference</td></tr>
+      </table>
+      <p>Footnotes collect at the bottom of the preview as a numbered list. Clicking a reference jumps to its note, and the <code>↩︎</code> beside the note brings you back to where you were reading.</p>
+      <pre><code>Water is H~2~O, and E = mc^2^.
+
+Here's a claim that needs a source.[^1]
+
+[^1]: And here's the source.</code></pre>
+
+      <h2>Code blocks</h2>
+      <p>Fenced code is highlighted with highlight.js, using the language you name after the backticks:</p>
+      <pre><code>```ts
+const answer: number = 42;
+```</code></pre>
+      <p>An unknown or missing language falls back to plain monospace rather than failing.</p>
 
       <h2>Reading width</h2>
-      <p>Drag the slider in the preview's top bar for a quick look, or set it permanently:</p>
+      <p>Set the reading column width once in <code>settings.json</code>:</p>
       <pre><code>{
-  "graphiteMd.contentWidth": 70
+  "graphiteMd.contentWidth": 60
 }</code></pre>
-      <p>The two stay in sync — changing one updates the other immediately.</p>
+      <p>A percentage of the available pane (40–100). Changing the setting updates an already-open preview immediately — there's no in-panel control.</p>
 
       <h2>Keyboard shortcuts</h2>
       <table>
