@@ -146,6 +146,14 @@ different from a web page loading its own stylesheet.
   - collect headings/tables/diagrams into `TocNode[]` arrays, handed to the
     webview as `window.__PREVIEW_DATA__` so the client never needs to
     re-parse the DOM to build the outline
+- **`src/settings.ts`** — reading and coercing the `graphiteMd.*`
+  configuration. Separate from `extension.ts` because that module cannot be
+  required outside a running VS Code, so anything left inside it is untestable
+  until there are integration tests.
+- **`src/shared/protocol.ts`** — the host <-> webview message contract, plus the
+  runtime guards for all three inbound channels (`isWebviewToHost`,
+  `isHostToWebview`, `isPreviewData`). Types are erased at build time, so the
+  guards are what actually hold the boundary at runtime.
 - **`src/webview/main.ts`** — the preview's client side, bundled to
   `media/preview.js`: the git-graph SVG outline,
   soft-scroll navigation, custom overlay scrollbars, the accordion
@@ -185,6 +193,16 @@ column. Editable in `settings.json`; the preview picks the change up live.
   up yet — right now the preview re-renders on every edit but doesn't
   auto-scroll to follow the cursor. (Re-renders do preserve the preview's
   scroll position — see the webview-state scroll restore in
-  `media/preview.js`.)
-- `publisher` in `package.json` is a placeholder — set it to your real
-  Marketplace publisher id before packaging with `vsce package`.
+  `src/webview/main.ts`.)
+- **`MEDIA_VERSION` in `src/extension.ts` has to be bumped by hand whenever
+  `media/preview.js` changes.** VS Code can serve a cached copy of a webview
+  asset across panel reopens, so without a bump an upgrading user keeps the old
+  bundle's behaviour — and no gate here can see it, because the stale file is
+  inside VS Code's cache, not this repo. Content-hash busting is the real fix
+  and is not in this release.
+- **No integration tests.** Everything above runs outside VS Code: the smoke
+  checks drive the built webview against a hand-rolled DOM double, and the BDD
+  suite drives the markdown pipeline directly. Nothing exercises activation,
+  command registration or the webview lifecycle inside a real editor, so a
+  regression in the host's wiring is caught by the manual F5 pass or not at
+  all. `@vscode/test-cli` is the intended home for that.
