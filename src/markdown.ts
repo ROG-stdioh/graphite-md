@@ -1,15 +1,14 @@
 import MarkdownIt from 'markdown-it';
-// @ts-ignore - no bundled types for these plugins
+import type { Token } from 'markdown-it';
+// The six plugins below ship no types of their own. Their shapes are declared
+// in src/types/markdown-it-plugins.d.ts, read from the installed packages —
+// which is why there is no suppression directive on any of these lines.
 import texmath from 'markdown-it-texmath';
-// @ts-ignore
+import type { TexmathOptions } from 'markdown-it-texmath';
 import markdownItSup from 'markdown-it-sup';
-// @ts-ignore
 import markdownItSub from 'markdown-it-sub';
-// @ts-ignore
 import markdownItIns from 'markdown-it-ins';
-// @ts-ignore
 import markdownItMark from 'markdown-it-mark';
-// @ts-ignore
 import markdownItFootnote from 'markdown-it-footnote';
 import katex from 'katex';
 import hljs from 'highlight.js';
@@ -70,7 +69,17 @@ md.linkify.set({ fuzzyLink: false });
 // syntax isn't rendered". Guard each one so a plugin problem degrades
 // gracefully instead of taking the entire extension down.
 try {
-  md.use(texmath, { engine: katex, delimiters: 'dollars', katexOptions: { throwOnError: false } });
+  md.use(
+    texmath,
+    // `satisfies` rather than a bare literal: md.use's own generic infers its
+    // type parameter from this argument, so without it the check is skipped and
+    // a misspelled delimiter set silently renders no math.
+    {
+      engine: katex,
+      delimiters: 'dollars',
+      katexOptions: { throwOnError: false },
+    } satisfies TexmathOptions
+  );
 } catch (err) {
   console.error('graphite.md: failed to register markdown-it-texmath, math rendering will be disabled', err);
 }
@@ -153,33 +162,46 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 // markdown-it has no built-in task list support, and existing plugins don't
 // give us the source line number we need for click-to-toggle edits, so this
 // is a small self-contained pass over the token stream instead of a plugin.
-function applyTaskLists(tokens: any[]): void {
+function applyTaskLists(tokens: Token[]): void {
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
+    const t = at(tokens, i, 'a token');
     if (t.type !== 'inline' || !t.children || !t.children.length) continue;
-    const first = t.children[0];
+    const first = at(t.children, 0, 'the first child of an inline token');
     if (first.type !== 'text') continue;
 
     const m = first.content.match(/^\[( |x|X)\]\s+/);
     if (!m) continue;
 
-    const checked = /x/i.test(m[1]);
-    first.content = first.content.slice(m[0].length);
+    // Both captures are mandatory in the pattern; noUncheckedIndexedAccess
+    // cannot see that. Defaulting to '' is correct here, where `?? ''` would
+    // have been wrong in collectTables: a missing marker means "not checked",
+    // which is exactly what an empty box means, so nothing is invented.
+    const [marker, box = ''] = m;
+    const checked = /x/i.test(box);
+    first.content = first.content.slice(marker.length);
 
     // walk back to the enclosing list item for its class + source line
     let line: number | undefined;
     for (let j = i - 1; j >= 0; j--) {
-      if (tokens[j].type === 'list_item_open') {
-        tokens[j].attrJoin('class', 'task-list-item');
-        if (tokens[j].map) line = tokens[j].map[0];
+      const prev = at(tokens, j, 'a token');
+      if (prev.type === 'list_item_open') {
+        prev.attrJoin('class', 'task-list-item');
+        if (prev.map) line = prev.map[0];
         break;
       }
     }
 
-    const checkbox: any = {
+    // A cast, deliberately, not `new Token('html_inline', '', 0)`. The
+    // constructor would fill in level/nesting/attrs/map/hidden, and this
+    // token is read by markdown-it's inline renderer for exactly two fields,
+    // type and content. The cast keeps the pushed object identical to the one
+    // the untested-but-working version pushed, which is the only thing a
+    // type-only refactor may claim. Token has every field this literal has, so
+    // the assertion is the legal narrowing direction — no `as unknown as`.
+    const checkbox = {
       type: 'html_inline',
       content: `<span class="${checked ? 'task-checkbox checked' : 'task-checkbox'}"${line !== undefined ? ` data-line="${line}"` : ''}></span>`,
-    };
+    } as Token;
     t.children.unshift(checkbox);
   }
 }
@@ -201,7 +223,7 @@ interface Section {
   title: string;
   titleHtml: string;
   id: string;
-  bodyTokens: any[];
+  bodyTokens: Token[];
   children: Section[];
 }
 
@@ -234,8 +256,8 @@ export function renderMarkdown(rawSource: string): RenderResult {
   const slugs = new Map<string, number>();
 
   let docTitleHtml = '';
-  const introTokens: any[] = [];
-  const footerTokens: any[] = [];
+  const introTokens: Token[] = [];
+  const footerTokens: Token[] = [];
   const roots: Section[] = [];
   const stack: Section[] = [];
   let sawH1 = false;
@@ -305,7 +327,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
     (innermost ? innermost.bodyTokens : introTokens).push(t);
   }
 
-  function renderTokens(toks: any[]): string {
+  function renderTokens(toks: Token[]): string {
     return md.renderer.render(toks, md.options, {});
   }
 
