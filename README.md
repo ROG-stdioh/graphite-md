@@ -4,6 +4,10 @@ A Markdown preview for people who read a lot of Markdown: collapsible
 sections, a git-graph style outline, checklists, math, and diagrams — in a
 dark, distraction-free theme.
 
+**[Documentation](https://rog-stdioh.github.io/graphite-md/)** ·
+**[Marketplace](https://marketplace.visualstudio.com/items?itemName=rog-stdioh.graphite-md)** ·
+**[Issues](https://github.com/ROG-stdioh/graphite-md/issues)**
+
 ![graphite.md](icon.png)
 
 ## Features

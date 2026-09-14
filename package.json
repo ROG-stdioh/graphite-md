@@ -3,8 +3,31 @@
   "displayName": "graphite.md",
   "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
   "version": "0.0.1",
-  "publisher": "your-publisher-id",
+  "publisher": "rog-stdioh",
+  "license": "MIT",
   "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ROG-stdioh/graphite-md.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ROG-stdioh/graphite-md/issues"
+  },
+  "homepage": "https://rog-stdioh.github.io/graphite-md/",
+  "keywords": [
+    "markdown",
+    "preview",
+    "outline",
+    "mermaid",
+    "katex",
+    "math",
+    "checklist",
+    "dark theme"
+  ],
+  "galleryBanner": {
+    "color": "#262624",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
