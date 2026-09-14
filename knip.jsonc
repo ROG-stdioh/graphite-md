@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // media/preview.js is a program root, not something anything imports: the
+  // extension loads it by URL from the webview's HTML, and graph-check.js reads
+  // it from disk. Listing it as an entry is what stops knip calling the whole
+  // webview unused. It becomes generated output in the conversion that follows,
+  // and moves from here to `ignore` when it does.
+  "entry": ["media/preview.js"],
+
+  // Reached only as a string, never as an import: copy-assets.js copies it out
+  // of node_modules by path, and extension.ts names the copied bundle in a
+  // <script src>. Taking knip's advice would ship a preview with no diagrams.
+  "ignoreDependencies": ["mermaid"]
+}
