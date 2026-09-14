@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Two link-handling fixes, plus an internal rebuild: the whole project — extension,
 webview and build tooling — is TypeScript, with static analysis gating every
-change.
+change. One thing to check before upgrading: **this release needs a newer VS
+Code than 0.0.1 did** (see Changed, below).
 
 ### Fixed
 
@@ -33,6 +34,12 @@ change.
 
 ### Changed
 
+- **graphite.md now requires VS Code 1.134.0 or later**, up from 1.85.0. The old
+  floor was never real: the editor API the extension was typed against had
+  drifted several releases behind the one it was built on, so the number
+  promised compatibility nothing had verified since 0.0.1. If you are on an
+  older VS Code, VS Code will not offer 0.0.2 as an update — update VS Code
+  first, then the extension.
 - The extension package no longer ships build and development files.
 - **The whole project is TypeScript.** The extension host, the webview, and the
   build and test tooling each sit inside a checked compiler program — three of
