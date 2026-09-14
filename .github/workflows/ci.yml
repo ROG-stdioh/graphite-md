@@ -1,0 +1,36 @@
+name: CI
+
+# Both long-lived branches, deliberately. Gating only dev would leave the
+# dev -> main release PR — the one that actually reaches users — unchecked.
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Node the extension is developed against. The tooling
+          # conversion that follows leans on Node's native type stripping.
+          node-version: '24'
+          cache: npm
+
+      # ci, not install: the lockfile pins the TypeScript major, and that pin
+      # is load-bearing — 7.x breaks typescript-eslint outright.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # graph-check runs the built webview once media/preview.js becomes a
+      # build artifact, so the build has to happen before the checks.
+      - run: npm run build
+
+      - run: npm run check
+
+      - run: npm run test:bdd
