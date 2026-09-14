@@ -1,20 +1,22 @@
-// BDD suite configuration. Run with `npm run test:bdd`.
+// This file is JavaScript on purpose, and it is the only one left.
 //
-// The suite is deliberately separate from scripts/render-check.js and
-// scripts/graph-check.js. Those are developer smoke tests: fast, and written
-// against the implementation ("hljs spans present", "footnote ref anchors
-// match"). This suite is written in the language of someone using the
-// preview, so it can answer a different question — not "does the code still
-// do what it did?" but "does the product still behave the way we say it
-// does?". Features live in features/*.feature; the steps that drive them live
-// in features/steps, and the shared world in features/support.
+// Cucumber discovers its configuration from a fixed list of filenames:
+// cucumber.js, cucumber.cjs, cucumber.mjs, cucumber.json, cucumber.yaml and
+// cucumber.yml. `cucumber.ts` is not on that list, so renaming this file would
+// not be a conversion — it would mean the suite silently ran with no
+// configuration at all, and `strict` below would stop failing steps that match
+// nothing. The list is in the installed package's configuration loader, not
+// inferred.
+//
+// There is nothing here to type: it is data.
 module.exports = {
   default: {
-    import: ['features/support/**/*.js', 'features/steps/**/*.js'],
+    // The step and support files are TypeScript, and Cucumber loads them
+    // through its own ESM `import()`, which Node resolves and strips types
+    // from. They stay CommonJS inside (see features/support/world.ts) — this
+    // glob is the only thing that has to know they are `.ts`.
+    import: ['features/support/**/*.ts', 'features/steps/**/*.ts'],
     format: ['progress'],
-    // Fail the run on a step that has no definition. Without this, a typo in
-    // a step name silently reports as "pending" and the suite still goes
-    // green — which is the one failure mode a test suite must not have.
     strict: true,
   },
 };

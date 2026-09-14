@@ -16,6 +16,19 @@
 
 /** Mirrors the `graphiteMd.contentWidth` contribution in package.json. */
 export const CONTENT_WIDTH_MIN = 40;
+
+/**
+ * The top of the same range.
+ *
+ * `@public` is load-bearing. knip follows ESM imports and does not follow the
+ * `require()` calls this repo's tooling is built on — eslint.config.ts records
+ * why they are requires — so the one consumer it could see for this, the clamp
+ * assertion in scripts/graph-check.ts, is invisible to it. CONTENT_WIDTH_MIN
+ * above escapes that blindness only by luck: src/extension.ts happens to import
+ * it as well. The tag is knip's own escape hatch for an export it cannot trace,
+ * and it is narrower than the alternatives — a file-wide exemption would stop
+ * reporting a genuinely dead export from this module.
+ */
 export const CONTENT_WIDTH_MAX = 100;
 
 /**

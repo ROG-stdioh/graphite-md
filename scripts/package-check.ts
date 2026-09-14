@@ -2,7 +2,7 @@
 //
 // .vscodeignore is a denylist, and denylists rot. A new dev file lands in the
 // repo, nobody adds a line, and it ships — which is exactly how
-// tsconfig.base.json, knip.jsonc, eslint.config.js and .github/ were all being
+// tsconfig.base.json, knip.jsonc, eslint.config.ts and .github/ were all being
 // packaged before this check existed. Nothing failed; the files were just
 // quietly in the .vsix.
 //
@@ -20,10 +20,13 @@
 // Requires a build first (media/preview.js is generated, media/vendor/ is
 // copied), so this runs after `npm run build`, not as part of `npm run check`.
 //
-// Run: node scripts/package-check.js
-
-const path = require('path');
-const { listFiles } = require('@vscode/vsce');
+// Run: node scripts/package-check.ts
+//
+// `require` rather than `import` keeps this file CommonJS, which is what lets
+// Node run it directly; the cast reattaches the module type @types/node widens
+// to `any`. See esbuild.ts for the full note.
+const path = require('path') as typeof import('path');
+const { listFiles } = require('@vscode/vsce') as typeof import('@vscode/vsce');
 
 const root = path.join(__dirname, '..');
 
@@ -58,18 +61,18 @@ const ALLOWED = [
   // The webview's own bundle and hand-written stylesheet.
   /^media\/(preview\.js|preview\.css)$/,
   // KaTeX CSS + fonts and mermaid.min.js, copied out of node_modules by
-  // scripts/copy-assets.js. The webview's CSP blocks a CDN, so these must ship.
+  // scripts/copy-assets.ts. The webview's CSP blocks a CDN, so these must ship.
   /^media\/vendor\//,
   // Screenshots the README embeds; the Marketplace renders them out of the .vsix.
   /^images\//,
 ];
 
-async function main() {
+async function main(): Promise<void> {
   const files = (await listFiles({ cwd: root })).map((f) => f.split(path.sep).join('/'));
   const shipped = new Set(files);
 
   let failures = 0;
-  const check = (name, cond, detail) => {
+  const check = (name: string, cond: boolean, detail?: string): void => {
     console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);
     if (!cond) {
       failures++;
@@ -92,7 +95,7 @@ async function main() {
     `no unexpected files (${unexpected.length})`,
     unexpected.length === 0,
     unexpected.length > 0
-      ? `add to .vscodeignore if dev-only, or to ALLOWED in scripts/package-check.js if it is runtime content:\n      ${unexpected.join('\n      ')}`
+      ? `add to .vscodeignore if dev-only, or to ALLOWED in scripts/package-check.ts if it is runtime content:\n      ${unexpected.join('\n      ')}`
       : ''
   );
 
@@ -100,7 +103,7 @@ async function main() {
   process.exitCode = failures === 0 ? 0 : 1;
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error(err);
   process.exit(1);
 });

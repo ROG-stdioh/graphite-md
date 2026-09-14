@@ -27,14 +27,16 @@ cucumber.js
 # file in there that must ship. The glob is deliberately narrow: it matches
 # *.bundle.js and never extension.js.
 out/*.bundle.js
-esbuild.js
 # Build and analysis config. These patterns are written to cover the class, not
 # the instance: a bare "*.ext" here matches the root only (a glob does not cross
 # "/"), so these catch a future tsconfig.node.json or eslint.config.mjs without
 # anyone remembering to come back and add a line. That forgetting is precisely
-# how tsconfig.base.json, knip.jsonc, eslint.config.js and .github/ came to ship
-# in the first place — scripts/package-check.js now fails the build if it happens
-# again.
+# how tsconfig.base.json, knip.jsonc, eslint.config.ts and .github/ came to ship
+# in the first place — scripts/package-check.ts now fails the build if it happens
+# again. `esbuild.*` rather than `esbuild.js` for the same reason: the build
+# script is esbuild.ts now, and a pattern naming one extension is exactly the
+# kind of line that goes stale.
+esbuild.*
 tsconfig*.json
 eslint.config.*
 knip.json*
