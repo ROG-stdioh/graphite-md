@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Two link-handling fixes, plus an internal rebuild: the source is now TypeScript
-throughout, with static analysis gating every change.
+Two link-handling fixes, plus an internal rebuild: the whole project — extension,
+webview and build tooling — is TypeScript, with static analysis gating every
+change.
 
 ### Fixed
 
@@ -33,8 +34,14 @@ throughout, with static analysis gating every change.
 ### Changed
 
 - The extension package no longer ships build and development files.
-- The source moved to TypeScript, with type checking, type-aware linting,
-  unused-code detection and a packaging check gating every change.
+- **The whole project is TypeScript.** The extension host, the webview, and the
+  build and test tooling each sit inside a checked compiler program — three of
+  them, with deliberately different environments, so the browser code cannot
+  reach for Node APIs and the host cannot reach for the DOM. The host ↔ webview
+  message contract is a shared type both sides compile against, so it cannot
+  drift without one of them failing to build.
+- **Static analysis gates every change.** Type checking, type-aware linting,
+  unused-code detection and a packaging check run on every pull request.
 
 ## [0.0.1] - 2026-09-14
 

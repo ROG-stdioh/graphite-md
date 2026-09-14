@@ -45,7 +45,7 @@ npm run test:bdd   # Gherkin scenarios in features/, ~1s
 ```
 
 Scenarios live in `features/*.feature`, one file per area, with steps in
-`features/steps/` and the shared world in `features/support/world.js`. The
+`features/steps/` and the shared world in `features/support/world.ts`. The
 world bundles `src/markdown.ts` with esbuild on every run and drives the real
 module — not a mock, and never a cached bundle, so the suite cannot pass
 against a stale version of the source. Adding a scenario usually means adding
@@ -56,11 +56,11 @@ skipped (`strict: true` in `cucumber.js`).
 regressions in, at a level below the prose:
 
 ```bash
-node scripts/render-check.js   # markdown pipeline over samples/kitchen-sink.md
-node scripts/graph-check.js    # webview: graph layout, host messages, accordion, scroll
+node scripts/render-check.ts   # markdown pipeline over samples/kitchen-sink.md
+node scripts/graph-check.ts    # webview: graph layout, host messages, accordion, scroll
 ```
 
-`graph-check.js` rebuilds the webview bundle first, through the same options
+`graph-check.ts` rebuilds the webview bundle first, through the same options
 object the real build uses, so the bytes it exercises are the bytes that ship
 rather than whatever the last build left on disk. It then runs that bundle
 against a hand-rolled DOM double rather than a real DOM. That is deliberate:
@@ -96,10 +96,10 @@ npm run build && npm run check:package   # needs the build: media/ is generated
 ```
 
 It exists because `.vscodeignore` is a denylist, and denylists rot: four dev
-files (`tsconfig.base.json`, `knip.jsonc`, `eslint.config.js`,
+files (`tsconfig.base.json`, `knip.jsonc`, `eslint.config.ts`,
 `.github/workflows/ci.yml`) had been shipping unnoticed. Nothing failed — they
 were just in the .vsix. Adding runtime content now means editing the `ALLOWED`
-list in `scripts/package-check.js`, which is the point: the question gets asked
+list in `scripts/package-check.ts`, which is the point: the question gets asked
 when the file is added rather than whenever someone next runs `vsce ls`.
 
 Two things worth not rediscovering. The check drives vsce's `listFiles` API
@@ -109,6 +109,45 @@ field in `package.json`: while a `.vscodeignore` exists vsce never reads that
 field at all — `collectFiles` only consults it when the `.vscodeignore` read
 fails with `ENOENT` — so a `files` allowlist here would be silently dead, with
 `vsce ls` still printing a clean success.
+
+## The tooling is TypeScript too
+
+Everything outside `src/` — the build script, the four check scripts, the BDD
+suite and `eslint.config.ts` — is TypeScript, checked by `tsconfig.node.json`.
+A third program rather than part of the others because it runs in Node: no
+`vscode` module, no DOM, and its own file list.
+
+What these files are *not* is ESM. Node loads them directly — `node
+scripts/graph-check.ts`, cucumber's glob over `features/**`, the `require.main`
+guard in `esbuild.ts` — and Node 24 strips the types as it loads them. A `.ts`
+file using import syntax, in a package with no `"type"` field, makes Node emit
+`MODULE_TYPELESS_PACKAGE_JSON` and reparse it as ESM on every single run, and it
+would take `module.exports` and `require.main` with it. So they are CommonJS,
+and `@typescript-eslint/no-require-imports` is switched off for this program
+alone — with the reason written where the rule is switched off, in
+`eslint.config.ts`, rather than at the top level where it would also stop
+guarding `src/`.
+
+Two things worth knowing before editing them:
+
+- A `require()` hands back `any`, so each one reattaches its module's type:
+  `const esbuild = require('esbuild') as typeof import('esbuild')`. Where the
+  module has real `export` syntax that is the whole fix. Where it publishes
+  itself with `module.exports = { ... }`, TypeScript cannot infer a module shape
+  from that assignment at all, and the type has to be written out at the call
+  site — `as { buildWebview: () => void }`.
+- `features/support/world.ts` ends with a type-only `export type { ... }`. That
+  is not a stray line: it is how a file that is CommonJS at runtime publishes
+  types the step files can consume as `import type`. Both `import type` and
+  `export type` are erased before Node decides a file's module format, so the
+  file stays CommonJS and gains typed consumers.
+
+`cucumber.js` is the one JavaScript file left, and it has to be: cucumber
+discovers its configuration from a fixed list of filenames, and `cucumber.ts` is
+not on it — renaming it would mean the suite ran with no configuration at all,
+`strict` included. `eslint.config.ts` is loaded through `jiti`, which ESLint
+requires for a TypeScript config file; that is why `jiti` is a declared
+devDependency rather than something borrowed from another package's tree.
 
 ## Why no "Custom CSS and JS Loader"?
 
@@ -161,15 +200,18 @@ different from a web page loading its own stylesheet.
   halftone callout background (real SVG circles sized from the element's
   actual `clientWidth`/`clientHeight` via `ResizeObserver` — never a
   stretched raster).
-- **`tsconfig.json` / `src/webview/tsconfig.json`** — two checked programs with
-  deliberately different environments: the host gets node types and no DOM, the
-  webview gets DOM and no node types, and neither can reach into the other.
-  `tsconfig.base.json` holds what they share. `src/shared/protocol.ts` is
-  compiled by both, so the message contract cannot drift between the two sides
-  without one of them failing to build. esbuild does all the emitting; every
-  program is a pure checker, so `npm run typecheck` is the thing that makes
-  `strict` mean anything.
-- **`scripts/copy-assets.js`** — copies just the KaTeX CSS/fonts and the
+- **`tsconfig.json` / `src/webview/tsconfig.json` / `tsconfig.node.json`** —
+  three checked programs with deliberately different environments: the host gets
+  node types and no DOM, the webview gets DOM and no node types, and neither can
+  reach into the other; the tooling gets node types and its own file list. Each
+  names what it contains rather than what it skips, so a new script lands in the
+  tooling program instead of being swept into whichever config happens to be
+  nearest. `tsconfig.base.json` holds what they share.
+  `src/shared/protocol.ts` is compiled by both sides of the message boundary, so
+  the contract cannot drift without one of them failing to build. esbuild does
+  all the emitting; every program is a pure checker, so `npm run typecheck` is
+  the thing that makes `strict` mean anything.
+- **`scripts/copy-assets.ts`** — copies just the KaTeX CSS/fonts and the
   Mermaid bundle out of `node_modules` into `media/vendor/`, so the webview
   never reaches out to a CDN at runtime (which its Content-Security-Policy
   blocks anyway).
