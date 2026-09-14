@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-14
+
 Two link-handling fixes, plus an internal rebuild: the whole project — extension,
 webview and build tooling — is TypeScript, with static analysis gating every
 change. One thing to check before upgrading: **this release needs a newer VS
@@ -79,5 +81,6 @@ Initial release.
 - **Tunable reading width** — the `graphiteMd.contentWidth` setting (40–100),
   applied to an open preview immediately.
 
-[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/ROG-stdioh/graphite-md/releases/tag/v0.0.1
