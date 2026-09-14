@@ -8,7 +8,7 @@ dark, distraction-free theme.
 **[Marketplace](https://marketplace.visualstudio.com/items?itemName=rog-stdioh.graphite-md)** ·
 **[Issues](https://github.com/ROG-stdioh/graphite-md/issues)**
 
-![graphite.md](icon.png)
+![The graphite.md preview showing an engineering RFC: rendered markdown on the left, and beside it the outline panel drawing the document's structure as a connected graph.](images/overview.png)
 
 ## Features
 
@@ -25,13 +25,19 @@ three views:
 Only one view is open at a time. Click any node to soft-scroll to that part
 of the document; the outline highlights where you are as you scroll.
 
+![The preview scrolled to a deeply nested heading. In the outline panel, the path from Content down to the current section is drawn in accent, and the section itself is highlighted.](images/outline.png)
+
 **Checklists.** Write `- [ ]` and `- [x]` as usual. In the preview they
 render as real, clickable checkboxes — checking one off edits your markdown
 file directly, so your task list and your document never drift apart.
 
+![A split view of a runbook: markdown source on the left, the same pre-flight section rendered on the right with four of six checkboxes ticked. Clicking a box in the preview rewrites the matching line in the file.](images/checklists.png)
+
 **Math.** Inline (`$...$`) and block (`$$...$$`) math, rendered with KaTeX.
 
 **Diagrams.** Fenced ` ```mermaid ` code blocks render as live diagrams.
+
+![Two captures side by side. On the left, a systems paper rendering inline and displayed math alongside a markdown table. On the right, a mermaid fenced code block rendered as a flow diagram of a coordinator fanning out to five replicas.](images/math-and-diagrams.png)
 
 **Callouts.** Blockquotes (`>`) get a distinct treatment so notes and
 asides stand out from body text.
@@ -39,6 +45,8 @@ asides stand out from body text.
 **Rich inline syntax.** Superscript (`^2^`), subscript (`~2~`), underline
 (`++text++`), highlighting (`==text==`), strikethrough (`~~text~~`), and
 footnotes (`[^1]`) all render natively.
+
+![A document exercising inline syntax: subscript, superscript, underline, highlight and strikethrough all rendered in place, with a footnote marker in the body and its definition listed at the foot of the page.](images/inline-syntax.png)
 
 **Syntax highlighting.** Fenced code blocks are highlighted with
 highlight.js, tinted to match the graphite theme.
