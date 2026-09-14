@@ -42,4 +42,10 @@ jobs:
 
       - run: npm run check
 
+      # Asks vsce which files it would put in the .vsix and fails on any that
+      # are not explicitly expected. .vscodeignore is a denylist and had already
+      # rotted — four dev files were shipping — so this is the thing that
+      # catches the next one. Needs the build above: media/ is generated.
+      - run: npm run check:package
+
       - run: npm run test:bdd
