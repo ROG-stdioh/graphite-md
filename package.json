@@ -29,7 +29,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.134.0"
   },
   "categories": [
     "Visualization",
@@ -104,7 +104,7 @@
     "@cucumber/cucumber": "^13.2.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "~1.134.0",
     "esbuild": "^0.21.0",
     "typescript": "~6.0.3"
   },
