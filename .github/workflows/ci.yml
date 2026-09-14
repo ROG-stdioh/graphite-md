@@ -27,6 +27,10 @@ jobs:
 
       - run: npm run typecheck
 
+      # Type-aware, so it needs no build — but it needs the whole program,
+      # which is why it costs about as much as the typecheck above.
+      - run: npm run lint
+
       # graph-check runs the built webview once media/preview.js becomes a
       # build artifact, so the build has to happen before the checks.
       - run: npm run build
