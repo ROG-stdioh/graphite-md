@@ -45,8 +45,19 @@ regressions in, at a level below the prose:
 
 ```bash
 node scripts/render-check.js   # markdown pipeline over samples/kitchen-sink.md
-node scripts/graph-check.js    # outline graph edge layout via a DOM stub
+node scripts/graph-check.js    # webview: graph layout, host messages, accordion, scroll
 ```
+
+`graph-check.js` runs the real `media/preview.js` against a hand-rolled DOM
+double rather than a real one. That is deliberate: the webview's logic *is*
+geometry — `offsetTop`, `clientHeight`, `getBoundingClientRect` — and jsdom
+implements no layout engine, so every rect comes back `0` and the graph
+assertions would be vacuous. The double lets a test set geometry explicitly.
+
+It covers the outline graph's edge layout, the messages the webview sends the
+host (`toggleTask`, `openLink`), the one-view-open accordion, the reading-width
+message, and the scroll position surviving a re-render. The last four are the
+host contract, which nothing checked before.
 
 ## Why no "Custom CSS and JS Loader"?
 
