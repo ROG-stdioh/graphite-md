@@ -98,7 +98,8 @@
     "watch": "node esbuild.js --watch",
     "test:bdd": "cucumber-js",
     "check": "node scripts/render-check.js && node scripts/graph-check.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
@@ -106,7 +107,10 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "~1.134.0",
     "esbuild": "^0.21.0",
-    "typescript": "~6.0.3"
+    "eslint": "^10.10.0",
+    "knip": "^6.35.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",
