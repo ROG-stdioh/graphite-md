@@ -5,6 +5,13 @@
 const fs = require('fs');
 const path = require('path');
 
+// media/preview.js is generated and gitignored, so it is rebuilt here before
+// anything reads it — through the same options object the real build uses, so
+// the bytes under test are the bytes that ship. Without this the checks would
+// silently run against whatever the last build happened to leave on disk.
+const { buildWebview } = require('../esbuild.js');
+buildWebview();
+
 let failures = 0;
 const check = (name, cond) => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);
@@ -16,7 +23,10 @@ function makeEl(tag) {
     tag,
     children: [],
     attrs: {},
-    style: { setProperty() {} },
+    // setProperty records onto the object itself, so `style.getPropertyValue`
+    // style reads and plain `style.height = ...` assignments both work — the
+    // code under test uses both forms.
+    style: { setProperty(k, v) { this[k] = v; } },
     className: '',
     dataset: {},
     textContent: '',
@@ -30,7 +40,12 @@ function makeEl(tag) {
     scrollTop: 0,
     clientHeight: 0,
     clientWidth: 0,
-    addEventListener() {},
+    // Listeners are recorded rather than dropped. Nothing fires them
+    // implicitly — tests reach them via the element's _listeners — but a
+    // no-op here would make the accordion, the scrollbar drag and the
+    // scroll-position save untestable while still looking registered.
+    _listeners: {},
+    addEventListener(type, fn) { (this._listeners[type] = this._listeners[type] || []).push(fn); },
     appendChild(c) { this.children.push(c); return c; },
     insertBefore(c) { this.children.unshift(c); return c; },
     setAttribute(k, v) { this.attrs[k] = String(v); },
@@ -67,7 +82,8 @@ const tree = [
 // builds fresh stubs, runs preview.js, lays out rows, and returns the
 // built rows + svg after the init rAF has flushed. `spyTarget` is the
 // .section-head the scroll-spy reports, i.e. which row ends up active.
-function run(spyTarget) {
+function run(spyTarget, opts) {
+  opts = opts || {};
   const byId = {};
   ['graphContent', 'graphTables', 'graphDiagrams', 'contentPane', 'contentInner'].forEach((id) => {
     const el = makeEl('div');
@@ -75,14 +91,34 @@ function run(spyTarget) {
     byId[id] = el;
   });
   const docEl = makeEl('html');
+  const bodyEl = makeEl('body');
+
+  // The accordion headers sectionMap looks up. querySelector returned null for
+  // every selector before, so sectionMap held three nulls and any call into
+  // collapseAllSections threw on `s.header.classList` — which is why the
+  // accordion was not merely unasserted but unreachable.
+  const accordionHeaders = ['content', 'tables', 'diagrams'].map((view) => {
+    const h = makeEl('div');
+    h.className = 'accordion-header';
+    h.dataset.view = view;
+    return h;
+  });
+  const accordionByView = {};
+  accordionHeaders.forEach((h) => { accordionByView[h.dataset.view] = h; });
+
   const handlers = {};
   const document = {
     documentElement: docEl,
+    body: bodyEl,
     createElement: (tag) => makeEl(tag),
     createElementNS: (_ns, tag) => makeEl(tag),
     getElementById: (id) => byId[id],
-    querySelector: () => null,
+    querySelector: (sel) => {
+      const m = /^\.accordion-header\[data-view="(\w+)"\]$/.exec(sel);
+      return m ? (accordionByView[m[1]] || null) : null;
+    },
     querySelectorAll: (sel) => {
+      if (sel === '.accordion-header') return accordionHeaders;
       if (sel.includes('.section-head') && spyTarget) {
         return [{ dataset: { target: spyTarget }, getBoundingClientRect: () => ({ top: 0 }), addEventListener() {} }];
       }
@@ -91,8 +127,9 @@ function run(spyTarget) {
     addEventListener(type, fn) { (handlers[type] = handlers[type] || []).push(fn); },
   };
   const rafQueue = [];
+  const winHandlers = {};
   const window = {
-    addEventListener() {},
+    addEventListener(type, fn) { (winHandlers[type] = winHandlers[type] || []).push(fn); },
     ResizeObserver: undefined,
     mermaid: undefined,
     __PREVIEW_DATA__: { headings: tree, tables: [], diagrams: [] },
@@ -101,7 +138,16 @@ function run(spyTarget) {
   let clock = 0;
   const performance = { now: () => (clock += 120) };
   const requestAnimationFrame = (cb) => { rafQueue.push(() => cb(performance.now())); };
-  const acquireVsCodeApi = () => ({ getState: () => ({}), setState() {}, postMessage() {} });
+  // Both directions are recorded. `postMessage(){}` and `getState: () => ({})`
+  // were no-ops, so the entire host contract and the scroll restore were
+  // unassertable while appearing to be wired up.
+  const posted = [];
+  const state = Object.assign({}, opts.state || {});
+  const acquireVsCodeApi = () => ({
+    getState: () => state,
+    setState: (s) => Object.assign(state, s),
+    postMessage: (m) => posted.push(m),
+  });
   const getComputedStyle = () => ({ getPropertyValue: (v) => (v === '--border-strong' ? '#000' : v === '--accent' ? '#f00' : '') });
 
   const src = fs.readFileSync(path.join(__dirname, '..', 'media', 'preview.js'), 'utf8');
@@ -126,7 +172,7 @@ function run(spyTarget) {
       rafQueue.splice(0).forEach((cb) => cb());
     }
   };
-  return { rows, svg, drawn, document, handlers, byId, flushAll };
+  return { rows, svg, drawn, document, handlers, byId, flushAll, posted, state, winHandlers, accordionByView };
 }
 
 const rowLabel = (r) => r.children.find((c) => c.className === 'label').textContent;
@@ -202,6 +248,164 @@ const dead = makeAnchor('#nope');
 pane.scrollTop = 123;
 const ev2 = fireClick(dead);
 check('dead anchor left alone (no preventDefault, no scroll)', ev2.prevented === false && pane.scrollTop === 123);
+
+// ==================== the host contract ====================
+// Everything below is what the webview says *to the host*, or what the host
+// says to it. None of it was covered before: postMessage was a no-op, so
+// these messages were produced into nothing and never asserted.
+
+function fireClickOn(sim, target) {
+  const e = { target, prevented: false, preventDefault() { this.prevented = true; } };
+  sim.handlers.click.forEach((h) => h(e));
+  sim.flushAll();
+  return e;
+}
+// Guarded so a missing message reports FAIL instead of throwing and taking
+// the rest of the run down with it.
+function sendCheckbox(sim, line, checked) {
+  const box = makeEl('span');
+  box.className = 'task-checkbox';
+  if (line !== undefined) box.dataset.line = String(line);
+  if (checked) box.classList.add('checked');
+  box.closest = (sel) => (sel === '.task-checkbox' ? box : null);
+  fireClickOn(sim, box);
+  return box;
+}
+
+// ---- checklist click -> toggleTask ----
+const cl = run('');
+const msg = (i) => cl.posted[i] || {};
+const box = sendCheckbox(cl, 12, false);
+check('checking a box posts toggleTask', msg(0).type === 'toggleTask' && msg(0).line === 12 && msg(0).checked === true);
+check('toggleTask line is a number, not the dataset string', typeof msg(0).line === 'number');
+check('checking a box flips it optimistically', box.classList.contains('checked'));
+check('exactly one message per click', cl.posted.length === 1);
+
+// A fresh element each call, so the assertion has to read from this one —
+// the box from the first click is a different object with its own classList.
+const box2 = sendCheckbox(cl, 12, true);
+check('unchecking posts checked:false', msg(1).type === 'toggleTask' && msg(1).checked === false);
+check('unchecking clears the optimistic class', !box2.classList.contains('checked'));
+const before = cl.posted.length;
+sendCheckbox(cl, undefined, false);
+check('a checkbox with no source line posts nothing', cl.posted.length === before);
+
+// ---- link click -> openLink ----
+function makeLink(href) {
+  const a = makeEl('a');
+  a.closest = (sel) => (sel === 'a[href]' ? a : null);
+  a.getAttribute = (k) => (k === 'href' ? href : null);
+  return a;
+}
+const lk = run('');
+const linkEv = fireClickOn(lk, makeLink('setup.md'));
+check('a relative link is handed to the host',
+  lk.posted.length === 1 && lk.posted[0].type === 'openLink' && lk.posted[0].href === 'setup.md');
+check('a relative link click is intercepted', linkEv.prevented === true);
+
+const lk2 = run('');
+fireClickOn(lk2, makeLink('#fnref1'));
+check('an in-page anchor is not sent to the host', lk2.posted.length === 0);
+
+const lk3 = run('');
+fireClickOn(lk3, makeLink(''));
+check('an empty href posts nothing', lk3.posted.length === 0);
+
+// ---- accordion: at most one section open ----
+const ac = run('');
+function clickAccordion(sim, view) {
+  (sim.accordionByView[view]._listeners.click || []).forEach((fn) => fn());
+  sim.flushAll();
+}
+clickAccordion(ac, 'content');
+check('clicking a section header opens it',
+  ac.accordionByView.content.classList.contains('expanded')
+  && !ac.byId.graphContent.classList.contains('collapsed'));
+check('opening a section closes the others',
+  ac.byId.graphTables.classList.contains('collapsed')
+  && ac.byId.graphDiagrams.classList.contains('collapsed')
+  && !ac.accordionByView.tables.classList.contains('expanded'));
+
+clickAccordion(ac, 'diagrams');
+check('opening another section closes the first (at most one open)',
+  ac.accordionByView.diagrams.classList.contains('expanded')
+  && !ac.byId.graphDiagrams.classList.contains('collapsed')
+  && !ac.accordionByView.content.classList.contains('expanded')
+  && ac.byId.graphContent.classList.contains('collapsed'));
+
+clickAccordion(ac, 'diagrams');
+check('clicking the open section closes it',
+  !ac.accordionByView.diagrams.classList.contains('expanded')
+  && ac.byId.graphDiagrams.classList.contains('collapsed'));
+
+// ---- contentWidth message -> CSS variable ----
+const cw = run('');
+cw.winHandlers.message.forEach((h) => h({ data: { type: 'contentWidth', value: 80 } }));
+check('contentWidth sets the reading-width variable', cw.document.body.style['--content-width'] === '80%');
+cw.winHandlers.message.forEach((h) => h({ data: { type: 'somethingElse' } }));
+check('an unrelated message leaves the width alone', cw.document.body.style['--content-width'] === '80%');
+
+// ---- the host's defence against a hand-edited setting ----
+// extension.ts cannot be required outside a running VS Code, so the coercion it
+// uses lives in src/settings.ts and is exercised here rather than not at all.
+// The bug it exists for: getConfiguration().get<number>() is an assertion, not a
+// check, so "contentWidth": "80" in settings.json arrives as a string wearing a
+// number's type and the rest of the extension believes it.
+const { resolveContentWidth, CONTENT_WIDTH_MIN, CONTENT_WIDTH_MAX } = require('../src/settings.ts');
+
+const FALLBACK = 60;
+check('a real number passes through', resolveContentWidth(80, FALLBACK) === 80);
+check('a numeric string is coerced, not rejected', resolveContentWidth('80', FALLBACK) === 80);
+check('a missing setting falls back', resolveContentWidth(undefined, FALLBACK) === FALLBACK);
+check('an empty string is unset, not zero', resolveContentWidth('', FALLBACK) === FALLBACK);
+check('a truncated value like "80px" falls back', resolveContentWidth('80px', FALLBACK) === FALLBACK);
+check('a boolean falls back', resolveContentWidth(true, FALLBACK) === FALLBACK);
+check('an object falls back', resolveContentWidth({ width: 80 }, FALLBACK) === FALLBACK);
+check('NaN falls back', resolveContentWidth(Number.NaN, FALLBACK) === FALLBACK);
+check('Infinity falls back', resolveContentWidth(Number.POSITIVE_INFINITY, FALLBACK) === FALLBACK);
+check('a value below the contributed range clamps up',
+  resolveContentWidth(5, FALLBACK) === CONTENT_WIDTH_MIN);
+check('a value above the contributed range clamps down',
+  resolveContentWidth(500, FALLBACK) === CONTENT_WIDTH_MAX);
+
+// ---- scroll position survives a re-render ----
+const s1 = run('');
+s1.byId.contentPane.scrollTop = 250;
+(s1.byId.contentPane._listeners.scroll || []).forEach((fn) => fn());
+s1.flushAll(); // the save is deferred to a rAF
+check('scrolling stashes the position in webview state', s1.state.scrollTop === 250);
+
+const s2 = run('', { state: { scrollTop: 250 } });
+check('a re-render restores the stashed scroll position', s2.byId.contentPane.scrollTop === 250);
+
+const s3 = run('', { state: {} });
+check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollTop === 0);
+
+// ---- the host's guard must accept what this webview actually sends ----
+// The host runs isWebviewToHost() over every message before acting on it. If
+// the guard and the webview ever disagree, the webview posts, the host drops it
+// on the floor and returns, and none of the assertions above notice — they
+// inspect cl.posted and lk.posted directly, which is the webview's side of the
+// wire only. So the guard is run against the real recorded payloads rather than
+// against examples written here to match it.
+//
+// protocol.ts is TypeScript and required directly. Node strips the types; it is
+// why the check scripts need Node 24, which is also what CI pins.
+const { isWebviewToHost } = require('../src/shared/protocol.ts');
+
+const sent = [...cl.posted, ...lk.posted];
+check('the webview posted messages to check', sent.length > 0);
+check('every message the webview sends passes the host guard', sent.every((m) => isWebviewToHost(m)));
+
+// A guard that says yes to everything would pass the check above, so it has to
+// be shown saying no.
+check('the host guard rejects a toggleTask with no checked flag',
+  !isWebviewToHost({ type: 'toggleTask', line: 5 }));
+check('the host guard rejects a toggleTask with a string line',
+  !isWebviewToHost({ type: 'toggleTask', line: '5', checked: true }));
+check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
+check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
+check('the host guard rejects null', !isWebviewToHost(null));
 
 console.log(failures === 0 ? '\nAll graph checks passed.' : `\n${failures} graph check(s) FAILED.`);
 process.exitCode = failures === 0 ? 0 : 1;

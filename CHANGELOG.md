@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Two link-handling fixes, plus an internal rebuild: the source is now TypeScript
+throughout, with static analysis gating every change.
+
+### Fixed
+
+- **Filenames no longer render as web links.** Any bare `word.ext` was being
+  linkified, and plenty of country domains are also file extensions — `.md`,
+  `.sh`, `.rs`, `.pl`, `.so`, `.cc` — so a document that merely mentioned
+  `README.md`, `setup.sh` or `lib.so` rendered them as links to
+  `http://README.md` and friends. In a Markdown preview a `*.md` is
+  overwhelmingly a filename. Explicit URLs and email addresses still linkify.
+  ([#1](https://github.com/ROG-stdioh/graphite-md/issues/1))
+- **Relative links open the file they point at.** Clicking `[setup](setup.md)`
+  fell through to VS Code's webview handler, which read the bare path as a
+  hostname and opened a website. Links now resolve against the document being
+  previewed — matching VS Code's own Markdown preview — and absolute URLs open
+  in your browser. ([#2](https://github.com/ROG-stdioh/graphite-md/issues/2))
+
+### Added
+
+- **A gallery** on the [docs site](https://rog-stdioh.github.io/graphite-md/),
+  with real screenshots of the preview now in the README.
+
+### Changed
+
+- The extension package no longer ships build and development files.
+- The source moved to TypeScript, with type checking, type-aware linting,
+  unused-code detection and a packaging check gating every change.
+
 ## [0.0.1] - 2026-09-14
 
 Initial release.

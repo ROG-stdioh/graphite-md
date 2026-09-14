@@ -6,6 +6,10 @@ Mermaid diagrams, checklists, and a dark Claude-branded theme.
 
 ## Setup
 
+Node 24 or newer. The check scripts require `src/shared/protocol.ts`
+directly and rely on Node stripping the types itself, which 24 does without
+a flag.
+
 ```bash
 npm install
 npm run build
@@ -16,14 +20,22 @@ to launch an Extension Development Host with graphite.md loaded. Open any
 `.md` file in that host window and run **graphite.md: Open Preview to the
 Side** from the Command Palette (or `Ctrl+K V` / `Cmd+K V`).
 
-`npm run watch` rebuilds the extension host bundle on save; reload the
-Extension Development Host window (`Cmd+R` / `Ctrl+R`) to pick up changes.
-Changes to `media/preview.js` or `media/preview.css` don't need a rebuild —
-just close and reopen the preview panel (or edit the markdown file, which
-re-renders the webview's HTML anyway).
+`npm run watch` rebuilds both bundles on save — the extension host and the
+webview. Reload the Extension Development Host window (`Cmd+R` / `Ctrl+R`) to
+pick up host changes; a webview change needs only the preview panel closed and
+reopened (or a keystroke in the markdown file, which re-renders the HTML).
+
+The webview lives in `src/webview/main.ts` and is bundled to
+`media/preview.js`, which is generated output: gitignored, never edited in
+place, and rebuilt by `npm run build`, by `npm run watch`, and by the check
+script below. `media/preview.css` is still hand-written and still needs no
+rebuild.
 
 Two layers, and they answer different questions. Run both with
-`npm run check && npm run test:bdd`.
+`npm run check && npm run test:bdd`. `npm run typecheck`, `npm run lint` and
+`npm run knip` are the static gates, and `npm run check:package` guards the
+.vsix; all six run on every PR against `dev` and `main`
+(`.github/workflows/ci.yml`).
 
 **The BDD suite** describes the preview's behaviour in the product's own
 vocabulary, so it also serves as a statement of what the extension promises:
@@ -45,8 +57,58 @@ regressions in, at a level below the prose:
 
 ```bash
 node scripts/render-check.js   # markdown pipeline over samples/kitchen-sink.md
-node scripts/graph-check.js    # outline graph edge layout via a DOM stub
+node scripts/graph-check.js    # webview: graph layout, host messages, accordion, scroll
 ```
+
+`graph-check.js` rebuilds the webview bundle first, through the same options
+object the real build uses, so the bytes it exercises are the bytes that ship
+rather than whatever the last build left on disk. It then runs that bundle
+against a hand-rolled DOM double rather than a real DOM. That is deliberate:
+the webview's logic *is* geometry — `offsetTop`, `clientHeight`,
+`getBoundingClientRect` — and jsdom implements no layout engine, so every rect
+comes back `0` and the graph assertions would be vacuous. The double lets a
+test set geometry explicitly.
+
+It covers the outline graph's edge layout, the messages the webview sends the
+host (`toggleTask`, `openLink`), the one-view-open accordion, the reading-width
+message, and the scroll position surviving a re-render. The last four are the
+host contract, which nothing checked before.
+
+It also runs the host's `isWebviewToHost` guard over the payloads the webview
+actually posted, not over examples written to match it. The host drops any
+message that fails that guard and returns without a word, so if the guard and
+the webview ever disagree the messages vanish and every other assertion here
+still passes. The guard is separately shown rejecting malformed input, since a
+guard that accepts everything would satisfy the first check on its own.
+
+And it covers `resolveContentWidth` from `src/settings.ts`. That one lives
+outside `extension.ts` for a reason worth keeping: `extension.ts` cannot be
+required outside a running VS Code, so a setting coercion left inside it is
+untestable until there are integration tests, and the input it has to survive —
+a hand-edited `"contentWidth": "80"` arriving as a string — is exactly the kind
+that goes wrong quietly.
+
+**The packaging check** asks vsce which files it would actually put in the
+.vsix, then fails on any that is not explicitly expected:
+
+```bash
+npm run build && npm run check:package   # needs the build: media/ is generated
+```
+
+It exists because `.vscodeignore` is a denylist, and denylists rot: four dev
+files (`tsconfig.base.json`, `knip.jsonc`, `eslint.config.js`,
+`.github/workflows/ci.yml`) had been shipping unnoticed. Nothing failed — they
+were just in the .vsix. Adding runtime content now means editing the `ALLOWED`
+list in `scripts/package-check.js`, which is the point: the question gets asked
+when the file is added rather than whenever someone next runs `vsce ls`.
+
+Two things worth not rediscovering. The check drives vsce's `listFiles` API
+rather than parsing `vsce ls` output, so it reads the same filter vsce will
+apply without depending on CLI formatting. And it does **not** use the `files`
+field in `package.json`: while a `.vscodeignore` exists vsce never reads that
+field at all — `collectFiles` only consults it when the `.vscodeignore` read
+fails with `ENOENT` — so a `files` allowlist here would be silently dead, with
+`vsce ls` still printing a clean success.
 
 ## Why no "Custom CSS and JS Loader"?
 
@@ -84,13 +146,29 @@ different from a web page loading its own stylesheet.
   - collect headings/tables/diagrams into `TocNode[]` arrays, handed to the
     webview as `window.__PREVIEW_DATA__` so the client never needs to
     re-parse the DOM to build the outline
-- **`media/preview.css` / `media/preview.js`** — carried over from the
-  interactive HTML mockup almost unchanged: the git-graph SVG outline,
+- **`src/settings.ts`** — reading and coercing the `graphiteMd.*`
+  configuration. Separate from `extension.ts` because that module cannot be
+  required outside a running VS Code, so anything left inside it is untestable
+  until there are integration tests.
+- **`src/shared/protocol.ts`** — the host <-> webview message contract, plus the
+  runtime guards for all three inbound channels (`isWebviewToHost`,
+  `isHostToWebview`, `isPreviewData`). Types are erased at build time, so the
+  guards are what actually hold the boundary at runtime.
+- **`src/webview/main.ts`** — the preview's client side, bundled to
+  `media/preview.js`: the git-graph SVG outline,
   soft-scroll navigation, custom overlay scrollbars, the accordion
   ("On this page" -> Content / Tables / Diagrams, at most one open), and the
   halftone callout background (real SVG circles sized from the element's
   actual `clientWidth`/`clientHeight` via `ResizeObserver` — never a
   stretched raster).
+- **`tsconfig.json` / `src/webview/tsconfig.json`** — two checked programs with
+  deliberately different environments: the host gets node types and no DOM, the
+  webview gets DOM and no node types, and neither can reach into the other.
+  `tsconfig.base.json` holds what they share. `src/shared/protocol.ts` is
+  compiled by both, so the message contract cannot drift between the two sides
+  without one of them failing to build. esbuild does all the emitting; every
+  program is a pure checker, so `npm run typecheck` is the thing that makes
+  `strict` mean anything.
 - **`scripts/copy-assets.js`** — copies just the KaTeX CSS/fonts and the
   Mermaid bundle out of `node_modules` into `media/vendor/`, so the webview
   never reaches out to a CDN at runtime (which its Content-Security-Policy
@@ -115,6 +193,16 @@ column. Editable in `settings.json`; the preview picks the change up live.
   up yet — right now the preview re-renders on every edit but doesn't
   auto-scroll to follow the cursor. (Re-renders do preserve the preview's
   scroll position — see the webview-state scroll restore in
-  `media/preview.js`.)
-- `publisher` in `package.json` is a placeholder — set it to your real
-  Marketplace publisher id before packaging with `vsce package`.
+  `src/webview/main.ts`.)
+- **`MEDIA_VERSION` in `src/extension.ts` has to be bumped by hand whenever
+  `media/preview.js` changes.** VS Code can serve a cached copy of a webview
+  asset across panel reopens, so without a bump an upgrading user keeps the old
+  bundle's behaviour — and no gate here can see it, because the stale file is
+  inside VS Code's cache, not this repo. Content-hash busting is the real fix
+  and is not in this release.
+- **No integration tests.** Everything above runs outside VS Code: the smoke
+  checks drive the built webview against a hand-rolled DOM double, and the BDD
+  suite drives the markdown pipeline directly. Nothing exercises activation,
+  command registration or the webview lifecycle inside a real editor, so a
+  regression in the host's wiring is caught by the manual F5 pass or not at
+  all. `@vscode/test-cli` is the intended home for that.

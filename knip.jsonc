@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // No `entry` list. Knip's esbuild plugin reads entryPoints straight out of
+  // esbuild.js, which finds both the extension host (src/extension.ts) and the
+  // webview (src/webview/main.ts) — and, unlike a list written here, cannot
+  // drift from the build when an entry moves. An earlier version of this file
+  // named media/preview.js instead, which is now generated output and
+  // gitignored, so knip never sees it.
+
+  // Reached only as a string, never as an import: copy-assets.js copies it out
+  // of node_modules by path, and extension.ts names the copied bundle in a
+  // <script src>. Taking knip's advice would ship a preview with no diagrams.
+  "ignoreDependencies": ["mermaid"]
+}
