@@ -22,11 +22,29 @@ Changes to `media/preview.js` or `media/preview.css` don't need a rebuild —
 just close and reopen the preview panel (or edit the markdown file, which
 re-renders the webview's HTML anyway).
 
-Two headless sanity checks cover the parts a live preview is slowest to
-catch regressions in:
+Two layers, and they answer different questions. Run both with
+`npm run check && npm run test:bdd`.
+
+**The BDD suite** describes the preview's behaviour in the product's own
+vocabulary, so it also serves as a statement of what the extension promises:
 
 ```bash
-node scripts/render-check.js   # markdown pipeline over test.md / test2.md
+npm run test:bdd   # Gherkin scenarios in features/, ~1s
+```
+
+Scenarios live in `features/*.feature`, one file per area, with steps in
+`features/steps/` and the shared world in `features/support/world.js`. The
+world bundles `src/markdown.ts` with esbuild on every run and drives the real
+module — not a mock, and never a cached bundle, so the suite cannot pass
+against a stale version of the source. Adding a scenario usually means adding
+a step; a step that matches nothing fails the run rather than being silently
+skipped (`strict: true` in `cucumber.js`).
+
+**The smoke checks** cover the parts a live preview is slowest to catch
+regressions in, at a level below the prose:
+
+```bash
+node scripts/render-check.js   # markdown pipeline over samples/kitchen-sink.md
 node scripts/graph-check.js    # outline graph edge layout via a DOM stub
 ```
 

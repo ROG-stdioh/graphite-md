@@ -95,9 +95,12 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js && node scripts/copy-assets.js",
-    "watch": "node esbuild.js --watch"
+    "watch": "node esbuild.js --watch",
+    "test:bdd": "cucumber-js",
+    "check": "node scripts/render-check.js && node scripts/graph-check.js"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^13.2.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
