@@ -47,8 +47,12 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('graphiteMd.open', () => openPreview(vscode.ViewColumn.Active)),
-    vscode.commands.registerCommand('graphiteMd.openToSide', () => openPreview(vscode.ViewColumn.Beside)),
+    vscode.commands.registerCommand('graphiteMd.open', () => {
+      openPreview(vscode.ViewColumn.Active);
+    }),
+    vscode.commands.registerCommand('graphiteMd.openToSide', () => {
+      openPreview(vscode.ViewColumn.Beside);
+    }),
 
     // live-update as the user types
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -213,8 +217,16 @@ function buildWebviewHtml(
     doc: vscode.TextDocument;
   }
 ): string {
-  const mediaUri = (relPath: string) =>
-    webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'media', relPath)));
+  // Returns a string, not a Uri. asWebviewUri hands back a Uri, and a Uri
+  // interpolated into the HTML template happens to stringify correctly — but
+  // "happens to" is the whole problem: it is the Uri's toString being relied on
+  // implicitly at four separate call sites. Converting once, here, where the
+  // value's only purpose is to be written into an attribute, makes that
+  // explicit and keeps the call sites interpolating a plain string.
+  const mediaUri = (relPath: string): string =>
+    webview
+      .asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'media', relPath)))
+      .toString();
 
   // Webviews can serve a cached copy of media files across panel reopens,
   // which makes an updated preview.js silently keep its old behavior.
