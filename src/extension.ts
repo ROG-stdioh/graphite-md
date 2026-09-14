@@ -107,7 +107,9 @@ function toggleTaskAt(doc: vscode.TextDocument, lineIndex: number, checked: bool
   const match = lineText.match(/^(\s*[-*+]\s+)\[[ xX]\]/);
   if (!match) return; // source drifted since render (user kept typing) — just skip, next render will resync
 
-  const startCol = match[1].length;
+  const [, indent] = match;
+  if (indent === undefined) return; // same as above: nothing to anchor an edit to
+  const startCol = indent.length;
   const range = new vscode.Range(lineIndex, startCol, lineIndex, startCol + 3);
   const edit = new vscode.WorkspaceEdit();
   edit.replace(doc.uri, range, checked ? '[x]' : '[ ]');

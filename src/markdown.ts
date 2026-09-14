@@ -110,6 +110,18 @@ md.renderer.rules.table_open = () => {
   return `<table class="md-table" id="table-${tableCounter}">`;
 };
 
+// Reads a token the stream guarantees is there. noUncheckedIndexedAccess
+// cannot see that invariant, and both alternatives lose something: a silent
+// `continue` would drop a section out of the outline with no diagnostic, and
+// `!` would assert an invariant nothing enforces. Throwing is what happens
+// today — a TypeError on the same line — except renderMarkdown's caller turns
+// a throw into a visible error page, so the failure stays loud either way.
+function at<T>(tokens: readonly T[], i: number, what: string): T {
+  const t = tokens[i];
+  if (t === undefined) throw new Error(`graphite.md: expected ${what} at token ${i}, found none`);
+  return t;
+}
+
 // ---- fenced code: mermaid gets a live diagram div, everything else stays code
 let diagramCounter = 0;
 const defaultFence =
@@ -118,7 +130,7 @@ const defaultFence =
     return self.renderToken(tokens, idx, options);
   };
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-  const token = tokens[idx];
+  const token = at(tokens, idx, 'a fence token');
   const lang = token.info.trim().toLowerCase();
   if (lang === 'mermaid') {
     diagramCounter += 1;
@@ -230,7 +242,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
   let inFootnote = false;
 
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
+    const t = at(tokens, i, 'a token');
 
     // markdown-it-footnote hoists every [^n]: definition into one
     // footnote_block at the end of the token stream. Keep that whole block
@@ -256,7 +268,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
     // right-hand panel to end up at the bottom of the document.
     if (t.type === 'heading_open' && t.level === 0) {
       const level = Number(t.tag.slice(1)); // "h2" -> 2
-      const inline = tokens[i + 1];
+      const inline = at(tokens, i + 1, 'the inline token after a heading_open');
       const titleText = inline.content;
       const titleHtml = md.renderer.renderInline(inline.children || [], md.options, {});
       i += 2; // skip inline + heading_close
@@ -270,9 +282,16 @@ export function renderMarkdown(rawSource: string): RenderResult {
       const id = `body-${slugify(titleText, slugs)}`;
       const section: Section = { level, title: titleText, titleHtml, id, bodyTokens: [], children: [] };
 
-      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
-      if (stack.length) {
-        stack[stack.length - 1].children.push(section);
+      // The stack is legitimately empty before the first heading, so this is
+      // real narrowing rather than an index the stream guarantees.
+      let top = stack[stack.length - 1];
+      while (top && top.level >= level) {
+        stack.pop();
+        top = stack[stack.length - 1];
+      }
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.children.push(section);
       } else {
         roots.push(section);
       }
@@ -282,7 +301,8 @@ export function renderMarkdown(rawSource: string): RenderResult {
 
     // non-heading token: goes to the innermost open section, or the intro
     // block if we haven't hit any section-starting heading yet
-    (stack.length ? stack[stack.length - 1].bodyTokens : introTokens).push(t);
+    const innermost = stack[stack.length - 1];
+    (innermost ? innermost.bodyTokens : introTokens).push(t);
   }
 
   function renderTokens(toks: any[]): string {
@@ -293,7 +313,10 @@ export function renderMarkdown(rawSource: string): RenderResult {
     // tableCounter was already advanced by the renderer; just label the ones
     // that landed in this section's HTML by scanning for the ids we assigned
     const matches = html.matchAll(/id="(table-\d+)"/g);
-    const ids = Array.from(matches, (m) => m[1]);
+    // The capture is mandatory in the pattern, so the filter never drops
+    // anything — it is how the type says so. `?? ''` would instead invent an
+    // empty target that the outline would then try to scroll to.
+    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
     ids.forEach((id, i) => {
       tables.push({ label: ids.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel, target: id });
     });
@@ -302,7 +325,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
 
   function collectDiagrams(html: string, sectionLabel: string): string {
     const matches = html.matchAll(/class="mermaid" id="(diagram-\d+)"/g);
-    const ids = Array.from(matches, (m) => m[1]);
+    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
     ids.forEach((id, i) => {
       diagrams.push({ label: ids.length > 1 ? `${sectionLabel} — diagram ${i + 1}` : sectionLabel, target: id });
     });
