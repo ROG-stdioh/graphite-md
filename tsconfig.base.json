@@ -1,0 +1,35 @@
+{
+  // Shared by the two programs that compile this repo: the extension host
+  // (tsconfig.json) and the webview (src/webview/tsconfig.json). esbuild does
+  // all the emitting, so every program here is a pure checker and sets noEmit —
+  // `microsoft/vscode-js-debug`'s arrangement, and what the official `yo code`
+  // esbuild overlay produces.
+  //
+  // Deliberately no `rootDir`. The webview program includes files from both
+  // src/webview and src/shared, and a rootDir that fits one program is a
+  // TS6059 for the other. Each program's own config sets what only it needs:
+  // `lib`, `types`, and any rootDir.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // Enums and parameter properties compile to runtime code that the type
+    // stripper cannot strip, so they fail at load time in the check scripts and
+    // the BDD suite, which load .ts directly rather than through esbuild. This
+    // makes that a compile error instead of a SyntaxError at require time.
+    "erasableSyntaxOnly": true,
+
+    "noEmit": true,
+    "skipLibCheck": true
+  }
+}

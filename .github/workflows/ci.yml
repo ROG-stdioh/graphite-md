@@ -31,6 +31,11 @@ jobs:
       # which is why it costs about as much as the typecheck above.
       - run: npm run lint
 
+      # Unused files, exports and dependencies. Gated rather than reported: its
+      # one real finding was a dead stub, and a gate that is red on purpose is a
+      # gate that gets switched off.
+      - run: npm run knip
+
       # graph-check runs the built webview once media/preview.js becomes a
       # build artifact, so the build has to happen before the checks.
       - run: npm run build

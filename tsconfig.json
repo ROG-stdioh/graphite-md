@@ -1,22 +1,20 @@
 {
+  // The extension host program. No DOM lib: this code runs in Node, and giving
+  // it browser globals would let a `document` reference compile here and throw
+  // at runtime.
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "module": "preserve",
-    "target": "ES2022",
     "lib": ["ES2022"],
-    "sourceMap": true,
     "rootDir": "src",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
-    "moduleResolution": "bundler",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
+    // Naming node explicitly is required, not tidy: TypeScript 6 no longer
+    // auto-includes @types, so `require` and `process` are undeclared without
+    // it (TS2591, found on the first run of this config).
     "types": ["node"]
   },
-  "exclude": ["node_modules", ".vscode-test", "out"]
+  // The webview is a separate program with a different lib and no node types —
+  // src/webview/tsconfig.json, which TypeScript's server finds as the nearest
+  // config to those files. Without this exclusion the root program's default
+  // `**/*` include would sweep the webview in and check it against the wrong
+  // environment.
+  "exclude": ["node_modules", ".vscode-test", "out", "src/webview"]
 }

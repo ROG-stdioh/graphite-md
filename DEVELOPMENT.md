@@ -20,14 +20,21 @@ to launch an Extension Development Host with graphite.md loaded. Open any
 `.md` file in that host window and run **graphite.md: Open Preview to the
 Side** from the Command Palette (or `Ctrl+K V` / `Cmd+K V`).
 
-`npm run watch` rebuilds the extension host bundle on save; reload the
-Extension Development Host window (`Cmd+R` / `Ctrl+R`) to pick up changes.
-Changes to `media/preview.js` or `media/preview.css` don't need a rebuild —
-just close and reopen the preview panel (or edit the markdown file, which
-re-renders the webview's HTML anyway).
+`npm run watch` rebuilds both bundles on save — the extension host and the
+webview. Reload the Extension Development Host window (`Cmd+R` / `Ctrl+R`) to
+pick up host changes; a webview change needs only the preview panel closed and
+reopened (or a keystroke in the markdown file, which re-renders the HTML).
+
+The webview lives in `src/webview/main.ts` and is bundled to
+`media/preview.js`, which is generated output: gitignored, never edited in
+place, and rebuilt by `npm run build`, by `npm run watch`, and by the check
+script below. `media/preview.css` is still hand-written and still needs no
+rebuild.
 
 Two layers, and they answer different questions. Run both with
-`npm run check && npm run test:bdd`.
+`npm run check && npm run test:bdd`. `npm run typecheck`, `npm run lint` and
+`npm run knip` are the static gates; all five run on every PR against `dev`
+and `main` (`.github/workflows/ci.yml`).
 
 **The BDD suite** describes the preview's behaviour in the product's own
 vocabulary, so it also serves as a statement of what the extension promises:
@@ -52,11 +59,14 @@ node scripts/render-check.js   # markdown pipeline over samples/kitchen-sink.md
 node scripts/graph-check.js    # webview: graph layout, host messages, accordion, scroll
 ```
 
-`graph-check.js` runs the real `media/preview.js` against a hand-rolled DOM
-double rather than a real one. That is deliberate: the webview's logic *is*
-geometry — `offsetTop`, `clientHeight`, `getBoundingClientRect` — and jsdom
-implements no layout engine, so every rect comes back `0` and the graph
-assertions would be vacuous. The double lets a test set geometry explicitly.
+`graph-check.js` rebuilds the webview bundle first, through the same options
+object the real build uses, so the bytes it exercises are the bytes that ship
+rather than whatever the last build left on disk. It then runs that bundle
+against a hand-rolled DOM double rather than a real DOM. That is deliberate:
+the webview's logic *is* geometry — `offsetTop`, `clientHeight`,
+`getBoundingClientRect` — and jsdom implements no layout engine, so every rect
+comes back `0` and the graph assertions would be vacuous. The double lets a
+test set geometry explicitly.
 
 It covers the outline graph's edge layout, the messages the webview sends the
 host (`toggleTask`, `openLink`), the one-view-open accordion, the reading-width
@@ -113,13 +123,21 @@ different from a web page loading its own stylesheet.
   - collect headings/tables/diagrams into `TocNode[]` arrays, handed to the
     webview as `window.__PREVIEW_DATA__` so the client never needs to
     re-parse the DOM to build the outline
-- **`media/preview.css` / `media/preview.js`** — carried over from the
-  interactive HTML mockup almost unchanged: the git-graph SVG outline,
+- **`src/webview/main.ts`** — the preview's client side, bundled to
+  `media/preview.js`: the git-graph SVG outline,
   soft-scroll navigation, custom overlay scrollbars, the accordion
   ("On this page" -> Content / Tables / Diagrams, at most one open), and the
   halftone callout background (real SVG circles sized from the element's
   actual `clientWidth`/`clientHeight` via `ResizeObserver` — never a
   stretched raster).
+- **`tsconfig.json` / `src/webview/tsconfig.json`** — two checked programs with
+  deliberately different environments: the host gets node types and no DOM, the
+  webview gets DOM and no node types, and neither can reach into the other.
+  `tsconfig.base.json` holds what they share. `src/shared/protocol.ts` is
+  compiled by both, so the message contract cannot drift between the two sides
+  without one of them failing to build. esbuild does all the emitting; every
+  program is a pure checker, so `npm run typecheck` is the thing that makes
+  `strict` mean anything.
 - **`scripts/copy-assets.js`** — copies just the KaTeX CSS/fonts and the
   Mermaid bundle out of `node_modules` into `media/vendor/`, so the webview
   never reaches out to a CDN at runtime (which its Content-Security-Policy

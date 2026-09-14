@@ -5,6 +5,13 @@
 const fs = require('fs');
 const path = require('path');
 
+// media/preview.js is generated and gitignored, so it is rebuilt here before
+// anything reads it — through the same options object the real build uses, so
+// the bytes under test are the bytes that ship. Without this the checks would
+// silently run against whatever the last build happened to leave on disk.
+const { buildWebview } = require('../esbuild.js');
+buildWebview();
+
 let failures = 0;
 const check = (name, cond) => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);

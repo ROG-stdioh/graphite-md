@@ -98,7 +98,7 @@
     "watch": "node esbuild.js --watch",
     "test:bdd": "cucumber-js",
     "check": "node scripts/render-check.js && node scripts/graph-check.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json",
     "lint": "eslint .",
     "knip": "knip"
   },

@@ -259,7 +259,14 @@ function buildWebviewHtml(
   // which makes an updated preview.js silently keep its old behavior.
   // Bump this whenever the behavior of the media files changes so the
   // webview is forced to refetch them.
-  const MEDIA_VERSION = '2';
+  //
+  // Bumped to 3 for the TypeScript conversion. The webview's behaviour is meant
+  // to be unchanged, but "meant to be" is not what this constant is for: every
+  // user upgrading 0.0.1 -> 0.0.2 receives a new preview.js whether or not the
+  // old one is still cached, and a stale cached bundle is the one failure no
+  // automated gate here can see. Nothing enforces this bump — content-hash
+  // busting is the real fix and is not in this release.
+  const MEDIA_VERSION = '3';
 
   const nonce = getNonce();
   const csp = [
