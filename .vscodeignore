@@ -18,7 +18,9 @@ docs/**
 out/render-check.bundle.js
 esbuild.js
 tsconfig.json
-*.map
+# "*.map" alone does NOT match out/extension.js.map — a bare glob does not
+# cross directory separators here. Needs the **/ prefix.
+**/*.map
 node_modules/**
 .gitignore
 .vscodeignore
