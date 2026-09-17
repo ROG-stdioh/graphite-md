@@ -12,3 +12,8 @@ media/preview.js.map
 
 # scratch logs left behind by debugging sessions
 scripts/*.log*
+
+# Local planning notes, kept as a working document rather than a published one.
+# Also in .vscodeignore: vsce packages what is on disk, not what is in git, so
+# ignoring it here would not keep it out of the .vsix.
+ROADMAP.md

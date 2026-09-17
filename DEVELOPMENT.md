@@ -88,6 +88,21 @@ untestable until there are integration tests, and the input it has to survive �
 a hand-edited `"contentWidth": "80"` arriving as a string — is exactly the kind
 that goes wrong quietly.
 
+**The media check** asserts that every file the preview page loads is requested
+at a URL carrying a version derived from that file's own contents:
+
+```bash
+npm run build && npm run check:media   # needs the build: media/vendor/ is copied
+```
+
+VS Code's webview serves a cached copy of an asset across panel reopens, so
+without a version an upgrading user keeps running the previous release's code —
+silently, and for exactly the people who upgraded. The version is derived at
+runtime from the file on disk (`src/mediaVersion.ts`), which is what makes it
+impossible to forget; the check is what proves each URL actually carries one. It
+replaced a `MEDIA_VERSION` constant in the HTML template that was bumped by
+hand, and missed, once per release that touched a media file.
+
 **The packaging check** asks vsce which files it would actually put in the
 .vsix, then fails on any that is not explicitly expected:
 
@@ -214,7 +229,10 @@ different from a web page loading its own stylesheet.
 - **`scripts/copy-assets.ts`** — copies just the KaTeX CSS/fonts and the
   Mermaid bundle out of `node_modules` into `media/vendor/`, so the webview
   never reaches out to a CDN at runtime (which its Content-Security-Policy
-  blocks anyway).
+  blocks anyway). The copied KaTeX CSS is not byte-identical to the one in
+  `node_modules`: its 60 `url(fonts/…)` references get a version baked in, since
+  a stylesheet's query string does not reach the URLs written inside it, and
+  that is the only way those files can be cache-busted at all.
 
 ## Settings
 
@@ -236,12 +254,12 @@ column. Editable in `settings.json`; the preview picks the change up live.
   auto-scroll to follow the cursor. (Re-renders do preserve the preview's
   scroll position — see the webview-state scroll restore in
   `src/webview/main.ts`.)
-- **`MEDIA_VERSION` in `src/extension.ts` has to be bumped by hand whenever
-  `media/preview.js` changes.** VS Code can serve a cached copy of a webview
-  asset across panel reopens, so without a bump an upgrading user keeps the old
-  bundle's behaviour — and no gate here can see it, because the stale file is
-  inside VS Code's cache, not this repo. Content-hash busting is the real fix
-  and is not in this release.
+- The media version is memoised per file on size and timestamp, so a 3.2 MB
+  mermaid bundle is not re-hashed on every keystroke. A rewrite that changed
+  neither — the same length, inside one filesystem timestamp tick — would go
+  unnoticed until the next one. Nothing in the build does that: two builds
+  producing identical bytes want the same version anyway, and different bytes
+  differing only in length is not a thing an edit does.
 - **No integration tests.** Everything above runs outside VS Code: the smoke
   checks drive the built webview against a hand-rolled DOM double, and the BDD
   suite drives the markdown pipeline directly. Nothing exercises activation,
