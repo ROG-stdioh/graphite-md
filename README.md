@@ -92,6 +92,12 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
 - An image referenced by an absolute path — `C:\pics\x.png`, or a `file://`
   URL — isn't loaded. The preview only resolves paths written relative to the
   document, and leaves anything absolute alone.
+- An image that lives *outside* the folder you have open — `../images/x.png`
+  from a file whose workspace doesn't contain `images/` — isn't loaded either,
+  and it fails quietly, as an empty box. A preview may only read files inside
+  the folder you opened and the document's own folder; VS Code's built-in
+  Markdown preview has the same boundary and fails the same way. Open a folder
+  containing both the document and its images, and the picture loads.
 - Merged-cell tables (`rowspan` / `colspan`) aren't supported yet — a syntax
   for them is still being designed.
   ([#8](https://github.com/ROG-stdioh/graphite-md/issues/8))
