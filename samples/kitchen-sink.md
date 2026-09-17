@@ -184,7 +184,8 @@ configured with `throwOnError: false`): $\frac{1}{$ is malformed.
 
 - An [external link](https://github.com).
 - An [anchor link](#tables) that should soft-scroll to the Tables section.
-- An ![image with alt text](https://placehold.co/120x40 "Optional hover title").
+- An ![image stored beside the document](../images/overview.png "Relative to this file, not to the preview") — this one must load.
+- A ![an image on the network](https://placehold.co/120x40 "Remote") — this one must **not** load, which is the point: remote images are off unless you turn on `graphiteMd.remoteImages`. An empty box here is correct.
 
 Footnotes collect into a numbered list at the foot of the preview. Clicking a
 reference jumps to its note; the ↩︎ beside the note comes back to where you were

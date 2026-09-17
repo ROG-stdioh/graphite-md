@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Images render.** A picture next to the document now loads — resolved
+  against the file it is written in, which is the one thing a Markdown preview
+  has to get right and the one thing the renderer, a pure string function, could
+  not do on its own. ([#14](https://github.com/ROG-stdioh/graphite-md/issues/14))
+- **`graphiteMd.remoteImages`**, off by default. Images from the network stay
+  blocked until you ask for them: a preview is a local reading surface, and
+  turning this on lets any document you open make requests to servers its author
+  picked, which tells them your IP and that you opened the file. Images stored
+  beside the document are never affected.
+  ([#14](https://github.com/ROG-stdioh/graphite-md/issues/14))
+
 ### Fixed
 
 - **Checkboxes work again — in every document, not just simple ones.** Two

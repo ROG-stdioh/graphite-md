@@ -76,6 +76,7 @@ highlight.js, tinted to match the graphite theme.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `graphiteMd.contentWidth` | number (40–100) | `60` | Width of the reading column, as a percentage of the available preview pane width. |
+| `graphiteMd.remoteImages` | boolean | `false` | Load images from the network. Off by default — images stored beside the document always work, and turning this on lets any document you preview make requests to servers its author picked. |
 
 ## Requirements
 
@@ -84,6 +85,13 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
 
 ## Known limitations
 
+- Images from the network (`https://…`) don't load unless you turn on
+  `graphiteMd.remoteImages`. That default is deliberate: previewing a file
+  shouldn't quietly tell a stranger's server that you opened it. Images stored
+  beside the document are unaffected by the setting.
+- An image referenced by an absolute path — `C:\pics\x.png`, or a `file://`
+  URL — isn't loaded. The preview only resolves paths written relative to the
+  document, and leaves anything absolute alone.
 - Merged-cell tables (`rowspan` / `colspan`) aren't supported yet — a syntax
   for them is still being designed.
   ([#8](https://github.com/ROG-stdioh/graphite-md/issues/8))
