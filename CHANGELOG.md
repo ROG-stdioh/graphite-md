@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Checkboxes work again — in every document, not just simple ones.** Two
+  independent defects made a rendered checkbox do nothing when clicked, with no
+  error to say so. An HTML comment spanning several lines was stripped from the
+  parse along with its line breaks, shifting every line number below it, so a
+  box reported the wrong source line and the edit landed nowhere; and a
+  checklist inside a blockquote was never matched in the first place, because
+  the host's pattern for finding the box rejected the leading `>`. Both are
+  fixed. ([#12](https://github.com/ROG-stdioh/graphite-md/issues/12))
+
 ## [0.0.2] - 2026-09-14
 
 Two link-handling fixes, plus an internal rebuild: the whole project — extension,
