@@ -441,6 +441,40 @@ check('dead anchor left alone (no preventDefault, no scroll)', !ev2.prevented &&
 // only stops a click it actually handled, so the window still sees this one.
 check('an unhandled anchor click is left to the window', simWindow() === 1);
 
+// ---- a heading anchor into a collapsed section ----
+// `[anchor link](#tables)` on a `## Tables` heading, which is the reported bug.
+// A heading's element and its body are siblings, not parent and child, so
+// getElementById hands back the heading — and unfolding from *that* would walk
+// up to the enclosing section and leave the one being pointed at shut.
+const anchorSim = run('');
+const anchorWindow = watchWindow(anchorSim);
+const anchorPane = anchorSim.byId.contentPane;
+
+const sectionBody = makeEl('div');
+sectionBody.className = 'section-body';
+sectionBody.id = 'body-tables';
+sectionBody.classList.add('collapsed');
+sectionBody.getBoundingClientRect = () => ({ top: 250 });
+sectionBody.closest = (sel: string) => (sel === '.section-body' ? sectionBody : null);
+
+const sectionHead = makeEl('h2');
+sectionHead.className = 'section-head';
+sectionHead.setAttribute('data-target', 'body-tables');
+sectionHead.closest = (sel: string) => (sel === '.section-head' ? sectionHead : null);
+sectionHead.getBoundingClientRect = () => ({ top: 250 });
+
+anchorSim.byId['tables'] = sectionHead;
+anchorSim.byId['body-tables'] = sectionBody;
+anchorPane.scrollTop = 0;
+
+const headingEv = fireClickOn(anchorSim, makeAnchor('#tables'));
+check('a heading anchor unfolds the section it names', !sectionBody.classList.contains('collapsed'));
+// expected: scrollTop 0 + head.top 250 - pane.top 0 - 24 = 226
+check('a heading anchor scrolls to the heading', Math.abs(anchorPane.scrollTop - 226) < 1);
+check('a heading anchor click is intercepted', headingEv.prevented);
+check('a handled heading anchor never reaches the window',
+  anchorWindow() === 0 && headingEv.stopped);
+
 // ==================== the host contract ====================
 // Everything below is what the webview says *to the host*, or what the host
 // says to it. None of it was covered before: postMessage was a no-op, so
