@@ -103,6 +103,7 @@
     "watch": "node esbuild.ts --watch",
     "test:bdd": "cucumber-js",
     "check": "node scripts/render-check.ts && node scripts/graph-check.ts",
+    "check:media": "node scripts/media-version-check.ts",
     "check:package": "node scripts/package-check.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json",
     "lint": "eslint .",
