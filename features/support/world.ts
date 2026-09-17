@@ -53,16 +53,34 @@ interface FlatNode {
 class PreviewWorld extends World {
   source: string;
   result: RenderResult | null;
+  /**
+   * Stands in for the host's image resolver. The real one lives in
+   * extension.ts, where building a URL needs a running VS Code and a live
+   * webview; what the suite can hold the renderer to is the contract — that it
+   * asks, and that it honours a refusal. The other half, deciding which sources
+   * are the host's to resolve at all, is pure logic in src/sourceRef.ts and is
+   * exercised directly by the scenarios that call it.
+   */
+  imageResolver: ((src: string) => string | undefined) | null;
+  /** Every source the stand-in resolver was handed, in order. */
+  imageRequests: string[];
+  /** The source a src/sourceRef.ts scenario is asking about, as written. */
+  refSource: string;
 
   constructor(options: IWorldOptions) {
     super(options);
     this.source = '';
     this.result = null;
+    this.imageResolver = null;
+    this.imageRequests = [];
+    this.refSource = '';
   }
 
   // Render the document the scenario built up.
   render(): RenderResult {
-    this.result = renderMarkdown(this.source);
+    this.result = this.imageResolver
+      ? renderMarkdown(this.source, { resolveImage: this.imageResolver })
+      : renderMarkdown(this.source);
     return this.result;
   }
 
