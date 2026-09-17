@@ -88,6 +88,11 @@
           "minimum": 40,
           "maximum": 100,
           "description": "Width of the reading column, as a percentage of the available preview pane width. Example: \"graphiteMd.contentWidth\": 60"
+        },
+        "graphiteMd.remoteImages": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Load images from the network (`https://`) in the preview. Off by default: a preview is a local reading surface, and turning this on lets any document you open make requests to servers its author chose, which tells them your IP and that you opened the file. Images stored beside the document are never affected by this setting."
         }
       }
     }
