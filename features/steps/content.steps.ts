@@ -78,10 +78,16 @@ function taskItems(html: string): { checked: boolean; line: number | null }[] {
   );
 }
 
-Then<PreviewWorld>('the preview shows {int} task items', function (expected: number) {
+function expectTaskItems(this: PreviewWorld, expected: number): void {
   const found = taskItems(this.html).length;
   assert.strictEqual(found, expected, `expected ${expected} task items, found ${found}`);
-});
+}
+
+// A step expression has no optional plural, and "1 task items" reads wrong, so
+// the singular is registered beside the plural rather than bending the
+// scenario's English to suit the matcher.
+Then<PreviewWorld>('the preview shows {int} task items', expectTaskItems);
+Then<PreviewWorld>('the preview shows {int} task item', expectTaskItems);
 
 Then<PreviewWorld>('{int} of them are ticked', function (expected: number) {
   const found = taskItems(this.html).filter((t) => t.checked).length;
@@ -93,6 +99,41 @@ Then<PreviewWorld>('{int} of them are ticked', function (expected: number) {
 Then<PreviewWorld>('every task item knows which line of the file it came from', function () {
   for (const item of taskItems(this.html)) {
     assert.notStrictEqual(item.line, null, 'a task item has no source line to write back to');
+  }
+});
+
+// The stronger half of the same contract, and the one that was missing: a box
+// carrying a line is not the same as a box carrying the *right* line. When
+// stripping an HTML comment also stripped its line breaks, every box still
+// carried a line and every one of them pointed at the wrong text — so clicking
+// a box did nothing, and nothing said so. The matcher comes from the host's
+// own module rather than a copy of the rule, so this checks the two halves
+// agree instead of checking a rule against itself.
+const { taskMarkerColumn } = require('../../src/taskMarker.ts') as typeof import('../../src/taskMarker');
+
+Then<PreviewWorld>('every checkbox can be toggled in the source file', function () {
+  const lines = this.source.split(/\r?\n/);
+  const items = taskItems(this.html);
+  assert.ok(items.length > 0, 'no task items rendered, so this scenario proves nothing');
+
+  for (const item of items) {
+    if (item.line === null) assert.fail('a task item carries no source line at all');
+
+    const text = lines[item.line];
+    if (text === undefined) assert.fail(`line ${item.line} is not a line of this document`);
+
+    const column = taskMarkerColumn(text);
+    if (column === undefined) {
+      assert.fail(
+        `this box points at line ${item.line}, where the host finds no checkbox: ${JSON.stringify(text)}`
+      );
+    }
+
+    assert.match(
+      text.slice(column, column + 3),
+      /^\[[ xX]\]$/,
+      `clicking this box would rewrite ${JSON.stringify(text.slice(column, column + 3))} rather than the box, in ${JSON.stringify(text)}`
+    );
   }
 });
 

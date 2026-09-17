@@ -77,6 +77,16 @@ Then<PreviewWorld>('the outline lists a table named {string}', function (label: 
   );
 });
 
+// Clicking an entry scrolls to the element carrying this id, so a table whose
+// id was taken by something else is an entry that scrolls to the wrong place.
+Then<PreviewWorld>('the outline lists a table at {string}', function (target: string) {
+  assert.ok(
+    this.tables.some((t) => t.target === target),
+    `expected a table targeting "${target}", got: ` +
+      JSON.stringify(this.tables.map((t) => t.target))
+  );
+});
+
 Then<PreviewWorld>('the outline lists {int} diagrams', function (expected: number) {
   assert.strictEqual(this.diagrams.length, expected, `expected ${expected} diagrams in the outline`);
 });

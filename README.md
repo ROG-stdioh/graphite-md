@@ -39,6 +39,12 @@ file directly, so your task list and your document never drift apart.
 
 ![Two captures side by side. On the left, a systems paper rendering inline and displayed math alongside a markdown table. On the right, a mermaid fenced code block rendered as a flow diagram of a coordinator fanning out to five replicas.](images/math-and-diagrams.png)
 
+**Images.** `![alt](diagram.png)` renders, resolved against the document it is
+written in — so a file in a subfolder finds the pictures beside it, and one
+that reaches up a level works whenever you have that folder open. Images from
+the network are a separate matter, and off by default; see
+[Settings](#settings).
+
 **Callouts.** Blockquotes (`>`) get a distinct treatment so notes and
 asides stand out from body text.
 
@@ -76,6 +82,7 @@ highlight.js, tinted to match the graphite theme.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `graphiteMd.contentWidth` | number (40–100) | `60` | Width of the reading column, as a percentage of the available preview pane width. |
+| `graphiteMd.remoteImages` | boolean | `false` | Load images from the network. Off by default — images stored beside the document always work, and turning this on lets any document you preview make requests to servers its author picked. |
 
 ## Requirements
 
@@ -84,16 +91,25 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
 
 ## Known limitations
 
+- Images from the network (`https://…`) don't load unless you turn on
+  `graphiteMd.remoteImages`. That default is deliberate: previewing a file
+  shouldn't quietly tell a stranger's server that you opened it. Images stored
+  beside the document are unaffected by the setting.
+- An image referenced by an absolute path — `C:\pics\x.png`, or a `file://`
+  URL — isn't loaded. The preview only resolves paths written relative to the
+  document, and leaves anything absolute alone.
+- An image outside the folder you have open doesn't load, and you get an empty
+  box rather than an error. Open a workspace of `docs/` by itself, preview
+  `docs/setup.md`, and `![logo](../images/logo.png)` stays blank — `images/`
+  isn't in the folder you opened. Open the parent that holds both `docs/` and
+  `images/`, and the picture loads. VS Code's built-in Markdown preview draws
+  the line in the same place.
 - Merged-cell tables (`rowspan` / `colspan`) aren't supported yet — a syntax
   for them is still being designed.
   ([#8](https://github.com/ROG-stdioh/graphite-md/issues/8))
-- The preview doesn't yet follow the editor cursor, or the editor the preview.
+- The preview doesn't follow the editor cursor, or the editor the preview.
   Re-rendering after an edit does preserve your scroll position, so you aren't
   thrown back to the top.
-- After an extension update, the preview can keep running the previous
-  version's bundle until the panel is reopened. Close and reopen the preview
-  if it looks stale; the durable fix is content-hash busting.
-  ([#6](https://github.com/ROG-stdioh/graphite-md/issues/6))
 - The outline panel is a fixed width and can't be collapsed yet.
   ([#3](https://github.com/ROG-stdioh/graphite-md/issues/3))
 

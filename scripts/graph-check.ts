@@ -355,10 +355,6 @@ check('active C -> 2 accent segments (A->B, B->C)',
 // ---- in-page anchor clicks (footnote backref) ----
 const sim = run('');
 const pane = sim.byId.contentPane;
-// `?? []` because the double records listeners into a plain map: if the webview
-// stopped registering a click handler this is empty and every assertion below
-// fails, which is the outcome being tested for anyway.
-const clickHandlers = sim.handlers.click ?? [];
 
 function makeAnchor(href: string): StubEl {
   const a = makeEl('a');
@@ -366,11 +362,59 @@ function makeAnchor(href: string): StubEl {
   a.closest = (sel: string) => (sel === 'a[href^="#"]' ? a : null);
   return a;
 }
-function fireClick(anchor: StubEl): { target: StubEl; prevented: boolean; preventDefault(): void } {
-  const e = { target: anchor, prevented: false, preventDefault() { this.prevented = true; } };
-  clickHandlers.forEach((h) => { h(e); });
-  sim.flushAll(); // run the scroll animation to completion
+
+interface ClickEvent {
+  target: StubEl;
+  prevented: boolean;
+  stopped: boolean;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+
+// A real click bubbles target -> … -> document -> window, and the webview is not
+// the only listener: VS Code registers its own link handling on the content
+// window, where it runs after this file's document handlers and — unlike its
+// drag and context-menu handlers — never checks defaultPrevented. It posts
+// `did-click-link` and the workbench opens the URI itself, so a handled click
+// that still reached the window opened twice in the editor, and an anchor
+// scrolled twice, with nothing here to catch it.
+//
+// The double runs the document's handlers and then the window's, skipping the
+// window when one of them called stopPropagation. That is the whole mechanism
+// the fix rests on, so a webview that stops doing it fails here.
+//
+// `?? []` because the double records listeners into a plain map: if the webview
+// stopped registering a click handler this is empty and every assertion below
+// fails, which is the outcome being tested for anyway.
+function clickEvent(target: StubEl, harness: Harness): ClickEvent {
+  const e: ClickEvent = {
+    target,
+    prevented: false,
+    stopped: false,
+    preventDefault() { e.prevented = true; },
+    stopPropagation() { e.stopped = true; },
+  };
+  (harness.handlers.click ?? []).forEach((h) => { h(e); });
+  if (!e.stopped) (harness.winHandlers.click ?? []).forEach((h) => { h(e); });
+  harness.flushAll(); // run the scroll animation to completion
   return e;
+}
+
+// Stands in for VS Code's handler. Anything this sees, VS Code saw.
+function watchWindow(harness: Harness): () => number {
+  let seen = 0;
+  // A fresh harness has no window listeners at all — this bundle registers none
+  // — so the read may legitimately come back empty.
+  const listeners = harness.winHandlers.click ?? [];
+  listeners.push(() => { seen += 1; });
+  harness.winHandlers.click = listeners;
+  return () => seen;
+}
+
+const simWindow = watchWindow(sim);
+
+function fireClick(anchor: StubEl): ClickEvent {
+  return clickEvent(anchor, sim);
 }
 
 // backref: href="#fnref1" whose target sits 400px below the pane top
@@ -385,23 +429,59 @@ const ev = fireClick(backref);
 // expected: pane.scrollTop + target.top(400) - pane.top(0) - 24 = 376
 check('backref click soft-scrolls to the target', Math.abs(pane.scrollTop - 376) < 1);
 check('backref click is intercepted (preventDefault)', ev.prevented);
+// and stopped before the window, where VS Code would scroll it a second time
+check('a handled anchor click never reaches the window', simWindow() === 0);
 
 // anchor with a target that does not exist -> left alone, no scrolling
 const dead = makeAnchor('#nope');
 pane.scrollTop = 123;
 const ev2 = fireClick(dead);
 check('dead anchor left alone (no preventDefault, no scroll)', !ev2.prevented && pane.scrollTop === 123);
+// Leaving it alone has to mean leaving it alone all the way up: the webview
+// only stops a click it actually handled, so the window still sees this one.
+check('an unhandled anchor click is left to the window', simWindow() === 1);
+
+// ---- a heading anchor into a collapsed section ----
+// `[anchor link](#tables)` on a `## Tables` heading, which is the reported bug.
+// A heading's element and its body are siblings, not parent and child, so
+// getElementById hands back the heading — and unfolding from *that* would walk
+// up to the enclosing section and leave the one being pointed at shut.
+const anchorSim = run('');
+const anchorWindow = watchWindow(anchorSim);
+const anchorPane = anchorSim.byId.contentPane;
+
+const sectionBody = makeEl('div');
+sectionBody.className = 'section-body';
+sectionBody.id = 'body-tables';
+sectionBody.classList.add('collapsed');
+sectionBody.getBoundingClientRect = () => ({ top: 250 });
+sectionBody.closest = (sel: string) => (sel === '.section-body' ? sectionBody : null);
+
+const sectionHead = makeEl('h2');
+sectionHead.className = 'section-head';
+sectionHead.setAttribute('data-target', 'body-tables');
+sectionHead.closest = (sel: string) => (sel === '.section-head' ? sectionHead : null);
+sectionHead.getBoundingClientRect = () => ({ top: 250 });
+
+anchorSim.byId['tables'] = sectionHead;
+anchorSim.byId['body-tables'] = sectionBody;
+anchorPane.scrollTop = 0;
+
+const headingEv = fireClickOn(anchorSim, makeAnchor('#tables'));
+check('a heading anchor unfolds the section it names', !sectionBody.classList.contains('collapsed'));
+// expected: scrollTop 0 + head.top 250 - pane.top 0 - 24 = 226
+check('a heading anchor scrolls to the heading', Math.abs(anchorPane.scrollTop - 226) < 1);
+check('a heading anchor click is intercepted', headingEv.prevented);
+check('a handled heading anchor never reaches the window',
+  anchorWindow() === 0 && headingEv.stopped);
 
 // ==================== the host contract ====================
 // Everything below is what the webview says *to the host*, or what the host
 // says to it. None of it was covered before: postMessage was a no-op, so
 // these messages were produced into nothing and never asserted.
 
-function fireClickOn(target: Harness, el: StubEl): { prevented: boolean } {
-  const e = { target: el, prevented: false, preventDefault() { this.prevented = true; } };
-  (target.handlers.click ?? []).forEach((h) => { h(e); });
-  target.flushAll();
-  return e;
+function fireClickOn(target: Harness, el: StubEl): ClickEvent {
+  return clickEvent(el, target);
 }
 // Guarded so a missing message reports FAIL instead of throwing and taking
 // the rest of the run down with it.
@@ -441,6 +521,7 @@ function makeLink(href: string): StubEl {
   return a;
 }
 const lk = run('');
+const lkWindow = watchWindow(lk);
 const linkEv = fireClickOn(lk, makeLink('setup.md'));
 // Destructured once so the two clauses below are checks on the same value
 // rather than two index reads the checker has to relate to each other.
@@ -448,6 +529,9 @@ const [linkMsg] = lk.posted;
 check('a relative link is handed to the host',
   lk.posted.length === 1 && linkMsg?.type === 'openLink' && linkMsg.href === 'setup.md');
 check('a relative link click is intercepted', linkEv.prevented);
+// The bug this replaced: VS Code opened the URI from its own handler at the
+// same time as the host did, so one click on an external link opened two tabs.
+check('a handled link click never reaches the window', lkWindow() === 0);
 
 const lk2 = run('');
 fireClickOn(lk2, makeLink('#fnref1'));

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-17
+
+Images, at last — and a preview that cannot go stale. Alongside them, two link
+defects and a checklist that silently did nothing in some documents. Nothing
+that rendered correctly before renders differently now.
+
+### Added
+
+- **Images render.** A picture next to the document now loads — resolved
+  against the file it is written in, which is the one thing a Markdown preview
+  has to get right and the one thing the renderer, a pure string function, could
+  not do on its own. ([#14](https://github.com/ROG-stdioh/graphite-md/issues/14))
+- **`graphiteMd.remoteImages`**, off by default. Images from the network stay
+  blocked until you ask for them: a preview is a local reading surface, and
+  turning this on lets any document you open make requests to servers its author
+  picked, which tells them your IP and that you opened the file. Images stored
+  beside the document are never affected.
+  ([#14](https://github.com/ROG-stdioh/graphite-md/issues/14))
+
+### Fixed
+
+- **An upgrade can no longer leave the preview running the previous release's
+  code.** VS Code's webview serves a cached copy of an asset across panel
+  reopens, so a shipped fix could stay invisible after updating — silently, and
+  for exactly the users who had upgraded. Each file the preview loads is now
+  requested at a URL carrying a version derived from that file's own contents,
+  so an unchanged file stays cached and a changed one cannot go unnoticed.
+  ([#6](https://github.com/ROG-stdioh/graphite-md/issues/6))
+- **A heading anchor resolves, and an external link opens once.** Clicking a
+  `#some-heading` link did nothing, because the heading carried no id of its
+  own; and a link to the outside world was opened twice, once by the preview and
+  again by VS Code's own webview handler, which never checks whether a
+  click was already handled. Both are fixed, and an anchor into a collapsed
+  section now opens the ancestors it needs on the way.
+  ([#16](https://github.com/ROG-stdioh/graphite-md/issues/16))
+- **Checkboxes work again — in every document, not just simple ones.** Two
+  independent defects made a rendered checkbox do nothing when clicked, with no
+  error to say so. An HTML comment spanning several lines was stripped from the
+  parse along with its line breaks, shifting every line number below it, so a
+  box reported the wrong source line and the edit landed nowhere; and a
+  checklist inside a blockquote was never matched in the first place, because
+  the host's pattern for finding the box rejected the leading `>`. Both are
+  fixed. ([#12](https://github.com/ROG-stdioh/graphite-md/issues/12))
+
 ## [0.0.2] - 2026-09-14
 
 Two link-handling fixes, plus an internal rebuild: the whole project — extension,
@@ -81,6 +125,7 @@ Initial release.
 - **Tunable reading width** — the `graphiteMd.contentWidth` setting (40–100),
   applied to an open preview immediately.
 
-[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/ROG-stdioh/graphite-md/releases/tag/v0.0.1

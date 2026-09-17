@@ -42,6 +42,12 @@ jobs:
 
       - run: npm run check
 
+      # Every file the preview page loads is requested at a URL carrying a
+      # version derived from that file's own bytes, so an upgrading user cannot
+      # be served the previous release's code out of the webview's cache. Needs
+      # the build above: half of it asserts on the copied KaTeX CSS.
+      - run: npm run check:media
+
       # Asks vsce which files it would put in the .vsix and fails on any that
       # are not explicitly expected. .vscodeignore is a denylist and had already
       # rotted — four dev files were shipping — so this is the thing that

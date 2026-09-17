@@ -47,3 +47,8 @@ node_modules/**
 .gitignore
 .vscodeignore
 DEVELOPMENT.md
+# Contributor-facing planning, never runtime content. Worth naming even though
+# it is untracked: vsce packages what is on disk, not what is in git, so a
+# roadmap sitting in the working tree would ship while CI stayed green. That is
+# exactly how scripts/package-check.ts caught it.
+ROADMAP.md
