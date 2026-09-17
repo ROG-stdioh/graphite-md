@@ -5,6 +5,7 @@
 // every property access `any`. The parameter annotations are the other half:
 // Cucumber's own signature is `(...args: any[])`, so an unannotated parameter
 // arrives as `any` and every use of it would be unchecked.
+import type { DataTable } from '@cucumber/cucumber';
 import type { PreviewWorld } from '../support/world';
 
 // The annotation and the cast are both load-bearing; neither is redundant.
@@ -62,6 +63,45 @@ Then<PreviewWorld>('the preview shows {int} collapsible sections', function (exp
 Then<PreviewWorld>('the preview shows {string} as a heading', function (text: string) {
   const re = new RegExp('<h[1-6][^>]*>[\\s\\S]*?' + escapeRe(text) + '[\\s\\S]*?</h[1-6]>');
   assert.ok(re.test(this.html), `expected "${text}" to render as a heading`);
+});
+
+// A heading's anchor is the slug of its own text, so `## Tables` is reachable
+// at `#tables`. The whole list is asserted in document order, because the
+// failure worth catching is not one missing anchor but anchors drifting apart
+// from the headings they belong to.
+Then<PreviewWorld>('the headings are anchored at:', function (dataTable: DataTable) {
+  const expected = dataTable.hashes().map((row) => row.anchor ?? '');
+  const actual = [...this.html.matchAll(/<h[1-6] class="section-head" id="([^"]*)"/g)].map(
+    (m) => m[1] ?? ''
+  );
+  assert.deepStrictEqual(
+    actual,
+    expected,
+    '\n  anchors mismatch\n  expected: ' +
+      JSON.stringify(expected) +
+      '\n  actual:   ' +
+      JSON.stringify(actual)
+  );
+});
+
+// Two elements under one id renders perfectly well and is therefore invisible:
+// the browser keeps both, getElementById returns whichever came first, and the
+// second one simply cannot be reached — so every outline target and anchor
+// click that names that id goes somewhere else, with nothing in the log to say
+// so. This is the property the renderer's id allocation exists to hold.
+Then<PreviewWorld>('no two elements share an id', function () {
+  const counts = new Map<string, number>();
+  // `data-id="…"` is not an id attribute, and \b matches between its hyphen and
+  // the following `i` — hence the lookbehind rather than a word boundary.
+  for (const [, id = ''] of this.html.matchAll(/(?<!data-)\bid="([^"]*)"/g)) {
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const shared = [...counts].filter(([, n]) => n > 1).map(([id]) => id);
+  assert.deepStrictEqual(
+    shared,
+    [],
+    `these ids are on more than one element: ${JSON.stringify(shared)}`
+  );
 });
 
 function escapeRe(s: string): string {

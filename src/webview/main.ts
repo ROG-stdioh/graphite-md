@@ -606,10 +606,26 @@ document.addEventListener('click', (e) => {
   if (!target) return; // no matching element — leave the click alone
   e.preventDefault();
 
+  // VS Code registers its own link handling on the window, which runs after
+  // this listener — and does not check defaultPrevented, unlike its drag and
+  // context-menu handlers. Left to bubble, an anchor gets scrolled twice: ours,
+  // then its own instant scrollIntoView. Document is the last node before
+  // window, so stopping here is what keeps the click ours.
+  e.stopPropagation();
+
+  // A heading anchor names the section's *head*, which sits beside its body
+  // rather than inside it — so opening from the head alone would unfold the
+  // parent section and leave the one actually pointed at shut. Redirect it to
+  // the body it titles first, and both cases walk the same loop.
+  const head = target.closest('.section-head');
+  const own = head
+    ? document.getElementById(must(head.getAttribute('data-target'), 'a section target'))
+    : null;
+
   // the target may sit in a section the user collapsed (a footnote
   // backref points back into text that may have been folded away) — open
   // it, and any ancestor sections, first
-  let body = target.closest('.section-body');
+  let body = (own ?? target).closest('.section-body');
   while (body) {
     body.classList.remove('collapsed');
     uncoverChevron(document.querySelector<HTMLElement>(`[data-target="${body.id}"].section-head`));
@@ -641,6 +657,14 @@ document.addEventListener('click', (e) => {
   const href = a.getAttribute('href') ?? '';
   if (!href || href.startsWith('#')) return; // in-page anchors handled above
   e.preventDefault();
+
+  // The other half of the anchor handler's note above, and the reason an
+  // external link opened two tabs: VS Code's own window-level handler posts
+  // `did-click-link` for any <a> with an href and never checks
+  // defaultPrevented, so the workbench opened the URL alongside this message.
+  // Both routes are the host's to route, and only one of them knows where a
+  // relative path should land — so the event stops here.
+  e.stopPropagation();
   vscode.postMessage({ type: 'openLink', href });
 });
 
