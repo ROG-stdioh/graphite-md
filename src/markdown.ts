@@ -247,7 +247,16 @@ export function renderMarkdown(rawSource: string): RenderResult {
   // Markdown and HTML. With html:false those would otherwise leak into the
   // page as visible escaped text (`&lt;!-- note --&gt;`), so we strip them
   // before parsing rather than turning raw HTML rendering on just for this.
-  const source = rawSource.replace(/<!--[\s\S]*?-->/g, '');
+  //
+  // The replacement keeps the comment's line breaks. Every line number the
+  // renderer hands back — the `data-line` a checklist box carries, which is
+  // what the host edits the file with — is a position in the source it parsed,
+  // so a comment that vanished along with its newlines would shift every line
+  // below it and point those edits at the wrong text. Keeping the breaks means
+  // the parsed source and the file on disk number their lines identically.
+  const source = rawSource.replace(/<!--[\s\S]*?-->/g, (comment: string) =>
+    '\n'.repeat(comment.split('\n').length - 1)
+  );
 
   const tokens = md.parse(source, {});
   applyTaskLists(tokens);
