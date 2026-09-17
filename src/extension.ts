@@ -5,7 +5,7 @@ import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview, PreviewData } from './shared/protocol';
 import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTENT_WIDTH_MIN } from './settings';
 import { taskMarkerColumn } from './taskMarker';
-import { parseSourceRef } from './sourceRef';
+import { planImageSource } from './sourceRef';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -177,20 +177,29 @@ function imageSourceResolver(
   doc: vscode.TextDocument
 ): (src: string) => string | undefined {
   return (src) => {
-    const ref = parseSourceRef(src);
-    if (ref.scheme !== undefined) return undefined;
-    if (ref.path === '') return undefined; // a bare "#fragment" — nothing to load
+    const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+    const plan = planImageSource(src, folder !== undefined);
 
-    let relative = ref.path;
-    try {
-      relative = decodeURIComponent(ref.path);
-    } catch {
-      // malformed percent-encoding — use the raw form rather than failing
+    switch (plan.kind) {
+      case 'refuse':
+        return undefined;
+      case 'uri':
+        try {
+          return webview.asWebviewUri(vscode.Uri.parse(plan.uri)).toString();
+        } catch {
+          // Defensive rather than known: a source that cannot be turned into a
+          // URI should cost one picture, and letting it throw would cost the
+          // document, since the caller turns a render failure into an error page.
+          return undefined;
+        }
+      case 'path': {
+        // joinPath normalises "..", and keeps whatever scheme the document uses
+        // (file:, vscode-remote:, …) instead of assuming a local disk.
+        const docDir = vscode.Uri.joinPath(doc.uri, '..');
+        const base = plan.from === 'folder' && folder ? folder.uri : docDir;
+        return webview.asWebviewUri(vscode.Uri.joinPath(base, plan.path)).toString();
+      }
     }
-
-    // joinPath normalises "..", and keeps whatever scheme the document uses
-    // (file:, vscode-remote:, …) instead of assuming a local disk.
-    return webview.asWebviewUri(vscode.Uri.joinPath(doc.uri, '..', relative)).toString();
   };
 }
 

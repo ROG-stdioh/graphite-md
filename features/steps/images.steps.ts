@@ -13,7 +13,7 @@ const { Given, Then } = require('@cucumber/cucumber') as typeof import('@cucumbe
 // taskMarkerColumn, and for the same reason: extension.ts cannot be loaded
 // outside a running VS Code, and this is the half of its behaviour worth
 // checking without one.
-const { parseSourceRef } = require('../../src/sourceRef.ts') as typeof import('../../src/sourceRef');
+const { parseSourceRef, planImageSource } = require('../../src/sourceRef.ts') as typeof import('../../src/sourceRef');
 
 // The feature's word for an absent value. An empty cell in an Examples table
 // does not bind to a step's parameter at all, so absence needs a name.
@@ -103,5 +103,58 @@ Then<PreviewWorld>('its fragment is {string}', function (expected: string) {
     fragment === '' ? ABSENT : fragment,
     expected,
     `${JSON.stringify(this.refSource)} reported the fragment ${JSON.stringify(fragment)}`
+  );
+});
+
+// A leading slash is two different steps rather than one step with a boolean,
+// because "the path begins with a slash" is the whole assertion — a reader
+// should not have to decode "rooted is true" to find out what was checked.
+Then<PreviewWorld>('the path begins with a slash', function () {
+  assert.strictEqual(
+    parseSourceRef(this.refSource).rooted,
+    true,
+    `${JSON.stringify(this.refSource)} was not reported as beginning with a slash`
+  );
+});
+
+Then<PreviewWorld>('the path does not begin with a slash', function () {
+  assert.strictEqual(
+    parseSourceRef(this.refSource).rooted,
+    false,
+    `${JSON.stringify(this.refSource)} was reported as beginning with a slash`
+  );
+});
+
+Given<PreviewWorld>('the document is in a folder', function () {
+  this.docInFolder = true;
+});
+
+Given<PreviewWorld>('the document is in no folder', function () {
+  this.docInFolder = false;
+});
+
+// The plan is flattened to one line so a table can state it: "refuse", or a
+// complete address as "uri:…", or a base and a path as "document:…"/"folder:…".
+// A shape rather than three columns because the three outcomes are alternatives
+// — a refused source has no path to report, and a table column for it would be
+// a cell that is always empty.
+Then<PreviewWorld>('the plan is {string}', function (expected: string) {
+  const plan = planImageSource(this.refSource, this.docInFolder);
+  let actual: string;
+  switch (plan.kind) {
+    case 'refuse':
+      actual = 'refuse';
+      break;
+    case 'uri':
+      actual = `uri:${plan.uri}`;
+      break;
+    case 'path':
+      actual = `${plan.from}:${plan.path}`;
+      break;
+  }
+  assert.strictEqual(
+    actual,
+    expected,
+    `${JSON.stringify(this.refSource)} planned ${JSON.stringify(actual)}`
   );
 });

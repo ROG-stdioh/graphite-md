@@ -66,6 +66,14 @@ class PreviewWorld extends World {
   imageRequests: string[];
   /** The source a src/sourceRef.ts scenario is asking about, as written. */
   refSource: string;
+  /**
+   * Whether the document being reasoned about sits inside a workspace folder.
+   *
+   * The one fact about the editor that sourceRef.ts's decision needs, and the
+   * reason it is a parameter there rather than a `vscode.workspace` lookup: the
+   * question "is there a folder to be relative to" is answerable without one.
+   */
+  docInFolder: boolean;
 
   constructor(options: IWorldOptions) {
     super(options);
@@ -74,6 +82,7 @@ class PreviewWorld extends World {
     this.imageResolver = null;
     this.imageRequests = [];
     this.refSource = '';
+    this.docInFolder = false;
   }
 
   // Render the document the scenario built up.
