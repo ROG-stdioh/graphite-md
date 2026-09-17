@@ -79,8 +79,6 @@ copyDir(katexFonts, path.join(vendorDir, 'katex/fonts'));
 
 // A function replacement, not a string: `$` in a captured filename would be
 // read as a substitution pattern in a replacement string.
-// A function replacement, not a string: `$` in a captured filename would be
-// read as a substitution pattern in a replacement string.
 const katexCss = fs
   .readFileSync(path.join(katexDist, 'katex.min.css'), 'utf8')
   .replace(/url\(fonts\/([^)]+)\)/g, (_match: string, file: string) => `url(fonts/${file}?v=${fontVersion})`);

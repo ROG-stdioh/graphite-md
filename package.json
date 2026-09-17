@@ -2,7 +2,7 @@
   "name": "graphite-md",
   "displayName": "graphite.md",
   "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "publisher": "rog-stdioh",
   "license": "MIT",
   "icon": "icon.png",

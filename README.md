@@ -39,6 +39,12 @@ file directly, so your task list and your document never drift apart.
 
 ![Two captures side by side. On the left, a systems paper rendering inline and displayed math alongside a markdown table. On the right, a mermaid fenced code block rendered as a flow diagram of a coordinator fanning out to five replicas.](images/math-and-diagrams.png)
 
+**Images.** `![alt](diagram.png)` renders, resolved against the document it is
+written in — so a file in a subfolder finds the pictures beside it, and one
+that reaches up a level works whenever you have that folder open. Images from
+the network are a separate matter, and off by default; see
+[Settings](#settings).
+
 **Callouts.** Blockquotes (`>`) get a distinct treatment so notes and
 asides stand out from body text.
 
@@ -101,13 +107,9 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
 - Merged-cell tables (`rowspan` / `colspan`) aren't supported yet — a syntax
   for them is still being designed.
   ([#8](https://github.com/ROG-stdioh/graphite-md/issues/8))
-- The preview doesn't yet follow the editor cursor, or the editor the preview.
+- The preview doesn't follow the editor cursor, or the editor the preview.
   Re-rendering after an edit does preserve your scroll position, so you aren't
   thrown back to the top.
-- After an extension update, the preview can keep running the previous
-  version's bundle until the panel is reopened. Close and reopen the preview
-  if it looks stale; the durable fix is content-hash busting.
-  ([#6](https://github.com/ROG-stdioh/graphite-md/issues/6))
 - The outline panel is a fixed width and can't be collapsed yet.
   ([#3](https://github.com/ROG-stdioh/graphite-md/issues/3))
 
