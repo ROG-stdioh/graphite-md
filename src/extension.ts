@@ -355,16 +355,20 @@ function buildWebviewHtml(
   // Bump this whenever the behavior of the media files changes so the
   // webview is forced to refetch them.
   //
-  // Bumped to 3 for the TypeScript conversion, and to 4 for images: preview.css
-  // grew a rule capping a picture to the reading column, and '3' is already out
-  // in the wild — every user on 0.0.2 keeps a cached `preview.css?v=3` and would
-  // never receive it. That is the whole reason this constant exists, and the
-  // reason it must move whenever a media file changes rather than only when the
+  // Bumped to 3 for the TypeScript conversion, to 4 for images (preview.css
+  // grew a rule capping a picture to the reading column), and to 5 for links
+  // (preview.js stopped letting VS Code open and scroll on its own).
+  //
+  // Each of those is a *different* number on purpose. '3' is already out in the
+  // wild, so every user on 0.0.2 holds a cached `preview.css?v=3`; and two
+  // changes that both shipped as '4' would leave the second one serving the
+  // first one's cached copy, which is the exact failure this constant exists to
+  // prevent. It must move whenever a media file changes, not only when the
   // behaviour "feels" different.
   //
   // Nothing enforces this bump. Content-hash busting is the real fix and is not
   // in this release.
-  const MEDIA_VERSION = '4';
+  const MEDIA_VERSION = '5';
 
   const nonce = getNonce();
   // `https:` is admitted only when the user has asked for it. It is the single
