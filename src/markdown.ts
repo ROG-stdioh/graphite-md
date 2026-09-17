@@ -24,6 +24,26 @@ export interface RenderResult {
   diagrams: TocNode[];
 }
 
+/**
+ * What the host lends the renderer for one render.
+ *
+ * The renderer is a pure `string -> string` function and has no idea where the
+ * document it is rendering lives, which is fine for everything except images: a
+ * relative `src` has to be resolved against the document's own folder before
+ * the webview can load it, and only the host knows that folder.
+ */
+export interface RenderEnv {
+  /**
+   * Turns a `src` written in the document into one the webview can load.
+   *
+   * Returning `undefined` means "leave it exactly as written" — the host has
+   * decided this source is not one it will serve, and the page's CSP is what
+   * refuses it. That is the channel the remote-image setting works through: a
+   * blocked image stays blocked here and is never silently rewritten.
+   */
+  resolveImage?: (src: string) => string | undefined;
+}
+
 // One markdown-it instance is enough; it holds no per-render state itself —
 // all per-render bookkeeping (counters, section stack) lives in renderMarkdown().
 const md: MarkdownIt = new MarkdownIt({
@@ -156,6 +176,34 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 // `.katex` for inline; preview.css keys off exactly those two classes, so no
 // extra wrapper markup is needed here.
 
+// ---- images: hand a source to the host before emitting it -------------------
+// Left alone, markdown-it emits the `src` exactly as written. A relative URL
+// inside a webview resolves against the *webview's* origin rather than the
+// folder the document is in, so `![](diagram.png)` pointed at nothing and every
+// image in every document was a broken box. asWebviewUri is the only thing that
+// can produce a loadable URL and it needs the document's URI, so the host
+// supplies a resolver through `env` and this rule asks it.
+//
+// A `src` it declines (anything naming a scheme) is emitted untouched — see
+// RenderEnv.resolveImage for why that is a decision rather than a failure.
+md.renderer.rules.image = (tokens, idx, options, env: RenderEnv, self) => {
+  const token = at(tokens, idx, 'an image token');
+  const src = token.attrGet('src');
+  if (src !== null) {
+    const resolved = env.resolveImage?.(src);
+    if (resolved !== undefined) token.attrSet('src', resolved);
+  }
+
+  // markdown-it's own image rule builds `alt` here from the token's children —
+  // the alt text is parsed into inline tokens, not carried as an attribute —
+  // and renderToken on its own does not do that. Replacing the rule without
+  // this line loads every picture correctly and describes it as "", which is a
+  // worse failure than the broken box it replaced.
+  token.attrSet('alt', self.renderInlineAsText(token.children ?? [], options, env));
+
+  return self.renderToken(tokens, idx, options);
+};
+
 // ---- checklists: "- [ ] foo" / "- [x] foo" -> a clickable checkbox --------
 // markdown-it has no built-in task list support, and existing plugins don't
 // give us the source line number we need for click-to-toggle edits, so this
@@ -233,8 +281,14 @@ interface Section {
  * The first H1 is treated as the document title (rendered separately, not
  * part of the collapsible tree). Every H2+ becomes a tree node, nested by
  * heading level under the nearest preceding shallower heading.
+ *
+ * `env` carries what the host lends this render — see RenderEnv. The same
+ * object goes to both `parse` and `render`, which is what markdown-it's own
+ * `render()` does; passing a fresh literal to each, as this did before images
+ * needed one, quietly denies every plugin the parse-time state it is entitled
+ * to read back at render time.
  */
-export function renderMarkdown(rawSource: string): RenderResult {
+export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderResult {
   tableCounter = 0;
   diagramCounter = 0;
   const tables: TocNode[] = [];
@@ -258,7 +312,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
     '\n'.repeat(comment.split('\n').length - 1)
   );
 
-  const tokens = md.parse(source, {});
+  const tokens = md.parse(source, env);
   applyTaskLists(tokens);
   const slugs = new Map<string, number>();
 
@@ -335,7 +389,7 @@ export function renderMarkdown(rawSource: string): RenderResult {
   }
 
   function renderTokens(toks: Token[]): string {
-    return md.renderer.render(toks, md.options, {});
+    return md.renderer.render(toks, md.options, env);
   }
 
   function collectTables(html: string, sectionLabel: string): string {
