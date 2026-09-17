@@ -48,6 +48,13 @@ body{
 .content-pane-wrap{ flex: 1; min-width:0; }
 .content-pane{ padding: 40px 24px 160px; }
 .content-inner{ width: var(--content-width); min-width: 320px; margin: 0 auto; }
+/* Cap a picture to the reading column rather than the pane. Screenshots are
+   routinely 1300-1700px wide and the column is a fraction of the pane, so
+   without this every image runs off the side and the reader gets a horizontal
+   scrollbar instead of a picture. max-width only ever constrains, so an image
+   smaller than the column is left exactly as it is; height:auto keeps the
+   aspect ratio while the width is being capped. */
+.content-pane img{ max-width: 100%; height: auto; }
 
 .doc-title{ font-family: var(--serif); font-size: 34px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 8px; color: var(--ink); }
 .doc-sub{ color: var(--ink-soft); font-size: 15.5px; margin: 0 0 34px; line-height: 1.55; font-family: var(--serif); }

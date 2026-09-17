@@ -48,3 +48,26 @@ export function resolveContentWidth(raw: unknown, fallback: number): number {
   if (typeof width !== 'number' || !Number.isFinite(width)) return fallback;
   return Math.min(CONTENT_WIDTH_MAX, Math.max(CONTENT_WIDTH_MIN, width));
 }
+
+/** Mirrors the `graphiteMd.remoteImages` contribution in package.json. */
+export const REMOTE_IMAGES_DEFAULT = false;
+
+/**
+ * Decides whether the preview may load images from the network.
+ *
+ * `false` is not a placeholder — it is the answer this extension wants. Turning
+ * it on widens the page's CSP to admit `https:`, and that is the one thing that
+ * lets a document reach a server its author chose just by being previewed,
+ * handing that server the reader's IP and the fact that they opened the file.
+ * A preview is a local reading surface, so the capability is opt-in and a
+ * document cannot ask for it.
+ *
+ * Strictly `typeof raw === 'boolean'`, for the reason set out above: the type
+ * parameter on `.get<boolean>()` is an assertion, so a hand-edited
+ * `"remoteImages": "yes"` arrives as a string. Anything that is not a boolean
+ * falls back rather than being coerced — `Boolean('false')` is `true`, and
+ * reading a setting backwards is worse than ignoring it.
+ */
+export function resolveRemoteImages(raw: unknown, fallback: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : fallback;
+}

@@ -3,8 +3,9 @@ import * as path from 'path';
 import { renderMarkdown } from './markdown';
 import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview, PreviewData } from './shared/protocol';
-import { resolveContentWidth, CONTENT_WIDTH_MIN } from './settings';
+import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTENT_WIDTH_MIN } from './settings';
 import { taskMarkerColumn } from './taskMarker';
+import { planImageSource } from './sourceRef';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -27,7 +28,7 @@ export function activate(context: vscode.ExtensionContext) {
         column,
         {
           enableScripts: true,
-          localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
+          localResourceRoots: resourceRoots(context, currentDoc),
           retainContextWhenHidden: true,
         }
       );
@@ -101,6 +102,14 @@ export function activate(context: vscode.ExtensionContext) {
         const message: HostToWebview = { type: 'contentWidth', value: getContentWidth() };
         currentPanel.webview.postMessage(message);
       }
+
+      // Remote images cannot take the message path above: the answer lives in
+      // the page's CSP, which is part of the document, so changing it needs a
+      // new one. Scroll position is lost, which is the honest cost of changing
+      // what the page is allowed to load.
+      if (currentPanel && e.affectsConfiguration('graphiteMd.remoteImages')) {
+        renderIntoPanel(context);
+      }
     })
   );
 }
@@ -113,6 +122,85 @@ function getContentWidth(): number {
   const fallback = typeof declared === 'number' ? declared : CONTENT_WIDTH_MIN;
   const raw: unknown = config.get('contentWidth');
   return resolveContentWidth(raw, fallback);
+}
+
+function getRemoteImages(): boolean {
+  const config = vscode.workspace.getConfiguration('graphiteMd');
+  // Same reasoning as getContentWidth: the default belongs to the contribution
+  // in package.json, and a second copy here is how the two drift apart.
+  const declared = config.inspect<unknown>('remoteImages')?.defaultValue;
+  const fallback = typeof declared === 'boolean' ? declared : REMOTE_IMAGES_DEFAULT;
+  return resolveRemoteImages(config.get('remoteImages'), fallback);
+}
+
+/**
+ * What the webview is allowed to read off disk.
+ *
+ * The extension's own media folder is always there. The document's folder has
+ * to be as well, or an image sitting beside the document cannot be served even
+ * though its URL was built correctly — the webview refuses anything outside
+ * these roots. Workspace folders come along because a document may reach
+ * sideways (`![](../shared/logo.png)`) and because that is what VS Code's own
+ * Markdown preview grants.
+ *
+ * Read once at panel creation and again whenever the preview switches to a
+ * different document. Webview options are settable after creation, and the
+ * value is consulted when `webview.html` is next assigned — which is the very
+ * next thing renderIntoPanel does, so a switch takes effect on that render.
+ */
+function resourceRoots(
+  context: vscode.ExtensionContext,
+  doc: vscode.TextDocument | undefined
+): vscode.Uri[] {
+  const roots = [vscode.Uri.file(path.join(context.extensionPath, 'media'))];
+  for (const folder of vscode.workspace.workspaceFolders ?? []) roots.push(folder.uri);
+  if (doc) roots.push(vscode.Uri.joinPath(doc.uri, '..'));
+  return roots;
+}
+
+/**
+ * Turns an image `src` written in the document into a URL the webview can load.
+ *
+ * Only the host can do this: the renderer is a pure string function with no
+ * idea where the document lives, and a relative URL inside a webview resolves
+ * against the *webview's* origin rather than the document's folder. Without
+ * this every image in every document was a broken box.
+ *
+ * A source naming a scheme is left exactly as written and never rewritten.
+ * `data:` is admitted by the page's CSP and needs no help; `https:` is admitted
+ * only when the user has turned remote images on, and the CSP is what enforces
+ * that — so the policy lives in one place instead of being split between a
+ * decision here and a permission there.
+ */
+function imageSourceResolver(
+  webview: vscode.Webview,
+  doc: vscode.TextDocument
+): (src: string) => string | undefined {
+  return (src) => {
+    const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+    const plan = planImageSource(src, folder !== undefined);
+
+    switch (plan.kind) {
+      case 'refuse':
+        return undefined;
+      case 'uri':
+        try {
+          return webview.asWebviewUri(vscode.Uri.parse(plan.uri)).toString();
+        } catch {
+          // Defensive rather than known: a source that cannot be turned into a
+          // URI should cost one picture, and letting it throw would cost the
+          // document, since the caller turns a render failure into an error page.
+          return undefined;
+        }
+      case 'path': {
+        // joinPath normalises "..", and keeps whatever scheme the document uses
+        // (file:, vscode-remote:, …) instead of assuming a local disk.
+        const docDir = vscode.Uri.joinPath(doc.uri, '..');
+        const base = plan.from === 'folder' && folder ? folder.uri : docDir;
+        return webview.asWebviewUri(vscode.Uri.joinPath(base, plan.path)).toString();
+      }
+    }
+  };
 }
 
 const WIDTH_TIP_DISMISSED_KEY = 'graphiteMd.hideWidthTip';
@@ -208,9 +296,19 @@ async function openLink(href: string, doc: vscode.TextDocument): Promise<void> {
 function renderIntoPanel(context: vscode.ExtensionContext) {
   if (!currentPanel || !currentDoc) return;
 
+  // The document's folder has to be in the roots *before* the HTML that
+  // references it is assigned, or the webview refuses the images it is about to
+  // be handed. Both happen below, in that order, on every render.
+  currentPanel.webview.options = {
+    enableScripts: true,
+    localResourceRoots: resourceRoots(context, currentDoc),
+  };
+
   let result;
   try {
-    result = renderMarkdown(currentDoc.getText());
+    result = renderMarkdown(currentDoc.getText(), {
+      resolveImage: imageSourceResolver(currentPanel.webview, currentDoc),
+    });
   } catch (err) {
     console.error('graphite.md: failed to render document', err);
     currentPanel.webview.html = `<body style="font-family:sans-serif;padding:20px;color:#c00;">
@@ -257,18 +355,28 @@ function buildWebviewHtml(
   // Bump this whenever the behavior of the media files changes so the
   // webview is forced to refetch them.
   //
-  // Bumped to 3 for the TypeScript conversion. The webview's behaviour is meant
-  // to be unchanged, but "meant to be" is not what this constant is for: every
-  // user upgrading 0.0.1 -> 0.0.2 receives a new preview.js whether or not the
-  // old one is still cached, and a stale cached bundle is the one failure no
-  // automated gate here can see. Nothing enforces this bump — content-hash
-  // busting is the real fix and is not in this release.
-  const MEDIA_VERSION = '3';
+  // Bumped to 3 for the TypeScript conversion, and to 4 for images: preview.css
+  // grew a rule capping a picture to the reading column, and '3' is already out
+  // in the wild — every user on 0.0.2 keeps a cached `preview.css?v=3` and would
+  // never receive it. That is the whole reason this constant exists, and the
+  // reason it must move whenever a media file changes rather than only when the
+  // behaviour "feels" different.
+  //
+  // Nothing enforces this bump. Content-hash busting is the real fix and is not
+  // in this release.
+  const MEDIA_VERSION = '4';
 
   const nonce = getNonce();
+  // `https:` is admitted only when the user has asked for it. It is the single
+  // directive that lets a document reach the network, so it is added by the
+  // setting rather than being present and then narrowed — a policy that starts
+  // closed is the one that cannot be left ajar by a later edit.
+  const imgSrc = getRemoteImages()
+    ? `img-src ${webview.cspSource} data: https:`
+    : `img-src ${webview.cspSource} data:`;
   const csp = [
     `default-src 'none'`,
-    `img-src ${webview.cspSource} data:`,
+    imgSrc,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `font-src ${webview.cspSource}`,
     `script-src 'nonce-${nonce}'`,
