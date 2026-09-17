@@ -130,11 +130,42 @@ try {
 // ---- blockquote -> .callout -------------------------------------------------
 md.renderer.rules.blockquote_open = () => `<blockquote class="callout">`;
 
+// ---- every id this render has handed out ------------------------------------
+// Two elements sharing an id is not a visible rendering error, it is a silent
+// redirection: getElementById returns whichever came first, so every outline
+// target and anchor click that names that id goes somewhere else, with nothing
+// in the log to say so.
+//
+// The ids below are allocated from opposite ends. A section body is its
+// heading's slug behind a `body-` prefix, `table-1`/`diagram-1` come off a
+// counter, and a heading's own anchor is the bare slug — which is the anchor
+// every author writes and every other Markdown renderer produces, so it is the
+// one that cannot be abbreviated. That puts `## Table 1` in line for the name
+// the first table is about to take, and `## Body Text` in line for the id of a
+// section called "Text". Both are ordinary headings, so neither is left to a
+// coin toss. Reset with the counters at the top of renderMarkdown.
+const claimedIds = new Set<string>();
+
+/** Reserves `base`, or the next free `base-N` when something already holds it. */
+function claimId(base: string): string {
+  let id = base;
+  for (let n = 1; claimedIds.has(id); n++) id = `${base}-${n}`;
+  claimedIds.add(id);
+  return id;
+}
+
 // ---- table -> .md-table + a stable id, so the Tables TOC tab can link to it --
 let tableCounter = 0;
 md.renderer.rules.table_open = () => {
-  tableCounter += 1;
-  return `<table class="md-table" id="table-${tableCounter}">`;
+  // The counter keeps its `table-N` shape even when it has to step over a name
+  // a heading claimed, because collectTables finds these ids again by that
+  // shape — a bumped `table-1-1` would drop the table out of the outline.
+  do {
+    tableCounter += 1;
+  } while (claimedIds.has(`table-${tableCounter}`));
+  const id = `table-${tableCounter}`;
+  claimedIds.add(id);
+  return `<table class="md-table" id="${id}">`;
 };
 
 // Reads a token the stream guarantees is there. noUncheckedIndexedAccess
@@ -160,8 +191,13 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = at(tokens, idx, 'a fence token');
   const lang = token.info.trim().toLowerCase();
   if (lang === 'mermaid') {
-    diagramCounter += 1;
+    // Same shape-preserving skip as table_open, and for the same reason:
+    // collectDiagrams finds these ids by pattern.
+    do {
+      diagramCounter += 1;
+    } while (claimedIds.has(`diagram-${diagramCounter}`));
     const id = `diagram-${diagramCounter}`;
+    claimedIds.add(id);
     const escaped = token.content
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -268,7 +304,19 @@ interface Section {
   level: number;
   title: string;
   titleHtml: string;
-  id: string;
+  /**
+   * The heading's own anchor: the bare slug of its text, and so the id an
+   * author reaches with `#tables`. Every other Markdown renderer puts this on
+   * the heading, and it is where a link into this section has to land.
+   */
+  anchor: string;
+  /**
+   * The id of the section's body element, and the handle everything inside the
+   * preview navigates by — the outline's targets, `data-target` on the heading,
+   * `data-id` on the wrapper. Prefixing it is what keeps it from colliding with
+   * the anchor above, which is allocated in the same namespace.
+   */
+  bodyId: string;
   bodyTokens: Token[];
   children: Section[];
 }
@@ -291,6 +339,7 @@ interface Section {
 export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderResult {
   tableCounter = 0;
   diagramCounter = 0;
+  claimedIds.clear();
   const tables: TocNode[] = [];
   const diagrams: TocNode[] = [];
 
@@ -362,8 +411,19 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
         continue;
       }
 
-      const id = `body-${slugify(titleText, slugs)}`;
-      const section: Section = { level, title: titleText, titleHtml, id, bodyTokens: [], children: [] };
+      // The anchor is claimed first so the author-facing name wins any contest
+      // with the section's own plumbing.
+      const anchor = claimId(slugify(titleText, slugs));
+      const bodyId = claimId(`body-${anchor}`);
+      const section: Section = {
+        level,
+        title: titleText,
+        titleHtml,
+        anchor,
+        bodyId,
+        bodyTokens: [],
+        children: [],
+      };
 
       // The stack is legitimately empty before the first heading, so this is
       // real narrowing rather than an index the stream guarantees.
@@ -423,18 +483,21 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     const childResults = section.children.map(renderSection);
     const childrenHtml = childResults.map((c) => c.html).join('\n');
 
+    // The anchor rides on the heading, which is where GitHub puts it and where
+    // a reader clicking `#tables` expects to land — on the title, not on the
+    // first line of prose underneath it.
     const html = `
-<div class="section" data-id="sec-${section.id}">
-  <h${section.level} class="section-head" data-target="${section.id}">
+<div class="section" data-id="sec-${section.bodyId}">
+  <h${section.level} class="section-head" id="${section.anchor}" data-target="${section.bodyId}">
     <span class="chev">▾</span><span>${section.titleHtml}</span>
   </h${section.level}>
-  <div class="section-body" id="${section.id}">
+  <div class="section-body" id="${section.bodyId}">
     ${bodyHtml}
     ${childrenHtml}
   </div>
 </div>`;
 
-    const toc: TocNode = { label: section.title, target: section.id };
+    const toc: TocNode = { label: section.title, target: section.bodyId };
     if (childResults.length) toc.children = childResults.map((c) => c.toc);
     return { html, toc };
   }

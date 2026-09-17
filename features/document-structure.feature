@@ -90,3 +90,117 @@ Feature: Reading a document
     When the preview renders it
     Then the preview shows 0 collapsible sections
     Then the outline is empty
+
+  # ---- anchors ------------------------------------------------------------
+  # A section here is collapsible, so its body carries a prefixed id — and the
+  # heading itself carried none at all. That left `#tables`, the anchor GitHub,
+  # GitLab and VS Code's own Markdown preview all produce for `## Tables` and so
+  # the one every author writes, resolving to nothing. The anchor belongs on the
+  # heading: where the other renderers put it, and where a reader clicking a
+  # link into a section expects to arrive.
+
+  Scenario: A heading carries the anchor its own text makes
+    Given a markdown document:
+      """
+      # Title
+
+      ## Tables
+
+      | a |
+      |---|
+      | 1 |
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | tables |
+
+  Scenario: A repeated heading gets an anchor of its own
+    Given a markdown document:
+      """
+      # Title
+
+      ## Setup
+
+      ## Setup
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor  |
+      | setup   |
+      | setup-1 |
+
+  Scenario: Nested headings are anchored in the order they are read
+    Given a markdown document:
+      """
+      # Title
+
+      ## Alpha
+
+      ### Beta
+
+      ## Gamma
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | alpha  |
+      | beta   |
+      | gamma  |
+
+  # The ids a render hands out come from two directions. A section body is its
+  # heading's slug behind a `body-` prefix and an anchor is the bare slug, while
+  # `table-1` and `diagram-1` come off a counter — so `## Body Text` is in line
+  # for the id of a section called "Text", and `## Table 1` for the id the first
+  # table is about to take. Neither is an exotic heading, and both would put two
+  # elements under one id.
+
+  Scenario: A heading cannot take the id of a section body
+    Given a markdown document:
+      """
+      # Title
+
+      ## Text
+
+      ## Body Text
+      """
+    When the preview renders it
+    Then no two elements share an id
+    Then the headings are anchored at:
+      | anchor       |
+      | text         |
+      | body-text-1  |
+
+  Scenario: A heading cannot take the id the first table is about to claim
+    Given a markdown document:
+      """
+      # Title
+
+      ## Table 1
+
+      | a | b |
+      |---|---|
+      | 1 | 2 |
+      """
+    When the preview renders it
+    Then no two elements share an id
+    Then the outline lists a table at "table-2"
+
+  Scenario: A heading cannot take the id of a diagram
+    Given a markdown document:
+      """
+      # Title
+
+      ## Diagram 2
+
+      ```mermaid
+      graph TD; A-->B;
+      ```
+
+      ```mermaid
+      graph TD; C-->D;
+      ```
+      """
+    When the preview renders it
+    Then no two elements share an id
+    Then the outline lists 2 diagrams
