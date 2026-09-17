@@ -4,6 +4,7 @@ import { renderMarkdown } from './markdown';
 import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview, PreviewData } from './shared/protocol';
 import { resolveContentWidth, CONTENT_WIDTH_MIN } from './settings';
+import { taskMarkerColumn } from './taskMarker';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -137,13 +138,9 @@ function maybeShowWidthTip(context: vscode.ExtensionContext): void {
 
 function toggleTaskAt(doc: vscode.TextDocument, lineIndex: number, checked: boolean): void {
   if (lineIndex < 0 || lineIndex >= doc.lineCount) return;
-  const lineText = doc.lineAt(lineIndex).text;
-  const match = lineText.match(/^(\s*[-*+]\s+)\[[ xX]\]/);
-  if (!match) return; // source drifted since render (user kept typing) — just skip, next render will resync
+  const startCol = taskMarkerColumn(doc.lineAt(lineIndex).text);
+  if (startCol === undefined) return; // source drifted since render (user kept typing) — just skip, next render will resync
 
-  const [, indent] = match;
-  if (indent === undefined) return; // same as above: nothing to anchor an edit to
-  const startCol = indent.length;
   const range = new vscode.Range(lineIndex, startCol, lineIndex, startCol + 3);
   const edit = new vscode.WorkspaceEdit();
   edit.replace(doc.uri, range, checked ? '[x]' : '[ ]');
