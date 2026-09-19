@@ -7,6 +7,7 @@ import { buildWebviewHtml } from './webviewHtml';
 import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTENT_WIDTH_MIN } from './settings';
 import { taskMarkerColumn } from './taskMarker';
 import { planImageSource } from './sourceRef';
+import { span, report } from './shared/perf';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
@@ -309,9 +310,15 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     localResourceRoots: resourceRoots(context, currentDoc),
   };
 
+  // `getText()` is inside the span rather than above it: it copies the whole
+  // document out of VS Code's buffer and is part of what one keystroke costs
+  // the host, so leaving it outside would understate the number this is here to
+  // measure.
+  const doneRender = span('host: renderMarkdown');
+  const source = currentDoc.getText();
   let result;
   try {
-    result = renderMarkdown(currentDoc.getText(), {
+    result = renderMarkdown(source, {
       resolveImage: imageSourceResolver(webview, currentDoc),
     });
   } catch (err) {
@@ -321,9 +328,11 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     </body>`;
     return;
   }
+  doneRender();
   const { html, headings, tables, diagrams } = result;
 
   currentPanel.title = path.basename(currentDoc.fileName);
+  const doneHtml = span('host: buildWebviewHtml');
   webview.html = buildWebviewHtml({
     mediaDir: path.join(context.extensionPath, 'media'),
     // Returns a string, not a Uri. asWebviewUri hands back a Uri, and a Uri
@@ -341,6 +350,15 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     tables,
     diagrams,
   });
+  doneHtml();
+
+  // The host half of the profile. It is printed here rather than in the webview
+  // because the two run in different processes: this line lands in the
+  // Extension Host output, the webview's own report lands in the webview
+  // DevTools console, and a reload writes one of each.
+  report(
+    `host render · ${path.basename(currentDoc.fileName)} · ${source.length} chars, ${source.split('\n').length} lines`
+  );
 }
 
 export function deactivate() {}
