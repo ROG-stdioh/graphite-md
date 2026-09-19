@@ -66,6 +66,24 @@ Then<PreviewWorld>('every outline entry points at something in the document', fu
   }
 });
 
+// The Tables view as a whole, in order, the way `the outline reads:` does for
+// Content. Existence is not enough to assert here: the pane is a list of where
+// things are in the document, and two entries the wrong way round send a reader
+// who trusts it to the wrong part of the page.
+Then<PreviewWorld>('the tables read:', function (dataTable: DataTable) {
+  const expected = dataTable.hashes().map((row) => ({
+    label: row.table ?? '',
+    target: row.target ?? '',
+  }));
+  const actual = this.tables.map((t) => ({ label: t.label, target: t.target }));
+  assert.deepStrictEqual(
+    actual,
+    expected,
+    '\n  table list mismatch\n  expected: ' + JSON.stringify(expected) +
+      '\n  actual:   ' + JSON.stringify(actual)
+  );
+});
+
 Then<PreviewWorld>('the outline lists {int} tables', function (expected: number) {
   assert.strictEqual(this.tables.length, expected, `expected ${expected} tables in the outline`);
 });

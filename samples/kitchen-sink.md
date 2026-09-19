@@ -305,8 +305,9 @@ A figure, and a rule:
 ---
 
 A table written by hand. It renders with the same borders and padding as a
-Markdown table. It does not yet appear in the Tables tab — the outline is fed by
-ids the Markdown table renderer assigns, and a raw table never receives one.
+Markdown table, and it takes its place in the Tables tab beside them: every
+table is given an id after rendering, in document order, whichever syntax wrote
+it.
 
 <table>
   <thead>
@@ -399,13 +400,26 @@ below are shown rather than applied:
   </tbody>
 </table>
 
-A Markdown table beside it, for contrast. Its cells do render inline syntax, and
-this one is in the Tables tab — the hand-written table above is not, because the
-outline is fed by ids the Markdown table renderer assigns:
+A Markdown table beside it, for contrast. Its cells do render inline syntax.
+Both are in the Tables tab, and they are listed in the order they appear here
+rather than the order they were rendered:
 
 | Written as | Shown as |
 | :-- | :-- |
 | `**bold**` | **bold** |
+
+A table named by hand. Its `id` is the document's rather than one the renderer
+invents, so the outline targets `#totals` — which is what keeps a link someone
+wrote, like [the totals](#totals), pointing at this table:
+
+<table id="totals">
+  <thead>
+    <tr><th>Named by</th><th>Outline target</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>this document</td><td><code>totals</code></td></tr>
+  </tbody>
+</table>
 
 ## Edge Cases
 
