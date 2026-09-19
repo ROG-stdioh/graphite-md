@@ -4,14 +4,35 @@ Everything the preview can render, in one file. Open this in the Extension
 Development Host (`npm run build`, then F5) to eyeball the whole feature set at
 once, or point the check scripts at it:
 
+**Open the enclosing folder, not just this file.** A preview may load local
+images from the workspace folders it was created with, or — when the document
+belongs to none — from the document's own directory, and nothing else. That is
+what VS Code's own Markdown preview does, and it matters here because this file
+references `../images/`, one level *above* the folder it sits in. Opened as a
+bare file there is no workspace folder to cover that, so those images are
+refused and every one of them is a broken box. F5 opens an empty window, so
+either open this folder in it first (File → Open Folder), or launch the host
+with the folder directly:
+
+```
+code --extensionDevelopmentPath=<repo> <repo>
+```
+
+Changing folders does not retarget an already-open panel — its roots were fixed
+when it was created — so reopen the preview afterwards.
+
 ```
 node scripts/render-check.js
 node scripts/graph-check.js
 ```
 
-<!-- HTML comments are stripped before parsing, so this one never reaches the
-     preview. It doubles as a regression check: if comments ever leak through,
-     the check scripts will see the escaped text and fail. -->
+<!-- Raw HTML renders, so this comment reaches the preview as a real comment and
+     the browser hides it — the same thing that happens to it on GitHub. It
+     doubles as a regression check: if comments are ever escaped back into
+     visible text, the check scripts will see the angle brackets and fail. Its
+     line breaks are load-bearing too. The renderer reports the source line of
+     every checkbox it emits, and those numbers are positions in this file, so
+     anything that shortens the source shifts them onto the wrong lines. -->
 
 ## H2: Section Heading
 
@@ -246,6 +267,146 @@ sequenceDiagram
     API Gateway-->>Client: HTTP 200 (HTML String)
 ```
 
+## Raw HTML
+
+Everything in this section is HTML rather than Markdown. It renders exactly as
+it is written, the way it does in VS Code's own preview and on GitHub, and the
+elements below are styled by `media/preview.css` so none of them falls back to
+a browser default drawn for a light page.
+
+Inline: <mark>highlighted</mark>, <kbd>Ctrl</kbd>+<kbd>K</kbd>, <abbr title="Application Programming Interface">API</abbr>, <ins>inserted</ins>, H<sub>2</sub>O and mc<sup>2</sup>.
+
+A definition list:
+
+<dl>
+  <dt>Rendering</dt>
+  <dd>Turning the document's source into the HTML the preview shows.</dd>
+  <dt>Outline</dt>
+  <dd>The "On this page" pane — Content, Tables and Diagrams.</dd>
+</dl>
+
+A collapsed disclosure:
+
+<details>
+<summary>What happens to a &lt;script&gt; tag?</summary>
+It reaches the page as a real element and never runs. The page's Content
+Security Policy allows scripts only from a nonce it generated itself, so an
+inline script and an <code>onclick=</code> attribute are both refused. See the
+CSP in <code>src/webviewHtml.ts</code>.
+</details>
+
+A figure, and a rule:
+
+<figure>
+  <img src="../images/overview.png" alt="Relative to this file">
+  <figcaption>A relative image written in raw HTML resolves like a Markdown one.</figcaption>
+</figure>
+
+---
+
+A table written by hand. It renders with the same borders and padding as a
+Markdown table. It does not yet appear in the Tables tab — the outline is fed by
+ids the Markdown table renderer assigns, and a raw table never receives one.
+
+<table>
+  <thead>
+    <tr><th>Stage</th><th>Cost</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Markdown parse</td><td>5.5 ms</td></tr>
+    <tr><td>Webview reload</td><td>99 ms</td></tr>
+  </tbody>
+</table>
+
+### Raw HTML that must not do anything
+
+These are here to be looked at, not used. Every one of them is inert in the
+preview: the first three because the CSP refuses them, the last because the
+panel is created with `enableForms: false`.
+
+<p onclick="alert('inline handler')">A paragraph with an onclick handler.</p>
+
+<iframe src="https://example.com" width="200" height="60"></iframe>
+
+<script>document.body.textContent = 'a script that must never run';</script>
+
+<form action="https://example.com/submit">
+  <input type="text" value="a form that must never submit">
+  <button type="submit">Submit</button>
+</form>
+
+## Mixed HTML and Markdown
+
+The two syntaxes in one document, which is how a README is actually written.
+Inline HTML is transparent — a tag in the middle of a sentence is just a tag,
+and the Markdown around it is unaffected. Blocks are the surprising half, so
+most of this section is about them.
+
+Inline: a <mark>highlighted</mark> word, a <kbd>Ctrl</kbd> chord and an
+<abbr title="Too Long; Did Not Read">TL;DR</abbr> all sit inside this sentence,
+and **bold after a tag** still renders, as does `code` and a [link](https://example.com).
+
+### A block is raw until a blank line ends it
+
+Nothing inside this block is Markdown, because no blank line separates it from
+the tag that opened it:
+
+<div class="callout">
+**not bold**, *not italic*, and the two lines below are not a list:
+- one
+- two
+</div>
+
+The same block, with a blank line after the opening tag and another before the
+close, does render what is inside it. That is the form to reach for:
+
+<div class="callout">
+
+**Bold**, *italic*, and those same two lines, now a real list:
+
+- one
+- two
+
+</div>
+
+That class is the one a `>` blockquote produces, so a hand-written
+`<div class="callout">` draws the same halftone card. The styling keys off the
+class, not off which syntax wrote it.
+
+### The same blank line is what keeps a heading out of the block
+
+Two `####` headings follow, and only the second one reaches the outline. The
+first has no blank line above it, so the `</div>` before it swallowed the line
+into its raw block and it is text on the page rather than a section. Open the
+outline pane beside this and count them.
+
+<div class="callout">Raw block content, ending on this line.</div>
+#### Swallowed: no blank line above, so this is text rather than a heading
+
+#### Kept: one blank line above, so this is a real section
+
+### Markdown inside a raw table cell is raw too
+
+A `<table>` written by hand is raw throughout, cells included, so the asterisks
+below are shown rather than applied:
+
+<table>
+  <thead>
+    <tr><th>Written as</th><th>Shown as</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>**bold**</td><td>**bold** — the asterisks are literal</td></tr>
+  </tbody>
+</table>
+
+A Markdown table beside it, for contrast. Its cells do render inline syntax, and
+this one is in the Tables tab — the hand-written table above is not, because the
+outline is fed by ids the Markdown table renderer assigns:
+
+| Written as | Shown as |
+| :-- | :-- |
+| `**bold**` | **bold** |
+
 ## Edge Cases
 
 Deliberately awkward input that has broken the renderer before:
@@ -253,7 +414,7 @@ Deliberately awkward input that has broken the renderer before:
 - A paragraph with a hard line break at the end of this line  
   and the text continuing after it.
 - A very long unbroken token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-- Characters that must be escaped and never interpreted as HTML: <div> & </div> and <script>alert(1)</script>
+- Characters that are HTML and are treated as such: <div> & </div> and <script>alert(1)</script> — the script element reaches the page and the page's policy refuses to run it. See "Raw HTML" above.
 - Backslash escapes: \*not italic\*, \`not code\`, \_not italic\_
 - A table cell containing a pipe: | is escaped as \| and must not split the row.
 - A heading with trailing hashes that should be stripped: ### Trailing hashes ###

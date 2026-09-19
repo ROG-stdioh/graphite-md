@@ -53,15 +53,37 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   // directive that lets a document reach the network, so it is added by the
   // setting rather than being present and then narrowed — a policy that starts
   // closed is the one that cannot be left ajar by a later edit.
+  //
+  // `media-src` takes the same shape as `img-src` and for the same reason: a
+  // `<video>` or `<audio>` written in raw HTML is a source out of the document
+  // exactly as a picture is, so it crosses the same boundary and answers to the
+  // same setting. Without the directive, `default-src 'none'` refuses it, and
+  // VS Code — which admits media — plays the same file.
+  const mediaSrc = options.remoteImages
+    ? `media-src ${options.cspSource} data: https:`
+    : `media-src ${options.cspSource} data:`;
   const imgSrc = options.remoteImages
     ? `img-src ${options.cspSource} data: https:`
     : `img-src ${options.cspSource} data:`;
   const csp = [
     `default-src 'none'`,
     imgSrc,
+    mediaSrc,
     `style-src ${options.cspSource} 'unsafe-inline'`,
     `font-src ${options.cspSource}`,
+    // Nonce, and only a nonce. There is no `'unsafe-inline'` here and there
+    // must never be one: with raw HTML rendering, an inline `<script>` or an
+    // `onclick=` attribute is markup an author can now write, and this
+    // directive is the entire reason that is safe to allow. The two scripts the
+    // page does run — mermaid and preview.js — carry the nonce.
     `script-src 'nonce-${nonce}'`,
+    // `form-action` is not one of the directives that falls back to
+    // `default-src`, so `default-src 'none'` alone would leave a `<form>` in a
+    // document free to post wherever its `action` points. VS Code relies on
+    // `enableForms: false` for this, which the host now sets too — this is the
+    // half the suite can hold, since panel options need a running editor to
+    // observe and this string does not.
+    `form-action 'none'`,
   ].join('; ');
 
   const initialData: PreviewData = {

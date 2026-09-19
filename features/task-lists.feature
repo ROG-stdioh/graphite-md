@@ -26,10 +26,12 @@ Feature: Task lists
     Then every task item knows which line of the file it came from
     And every checkbox can be toggled in the source file
 
-  # The line a box reports is a line of the *file*, and the renderer strips
-  # HTML comments before it parses. A comment spanning several lines used to
-  # take its line breaks with it, shifting every line below — so every box
-  # still reported a line, and every one of them pointed at the wrong text.
+  # The line a box reports is a line of the *file*. A comment spanning several
+  # lines is the shape that broke it: when comments were stripped before
+  # parsing, a stripped comment took its line breaks with it and shifted every
+  # line below — so every box still reported a line, and every one of them
+  # pointed at the wrong text. Comments now reach the parser intact, which is
+  # the strongest form of the same guarantee, and this is what holds it.
   Scenario: A box still points at its own line past a multi-line comment
     Given a markdown document:
       """
