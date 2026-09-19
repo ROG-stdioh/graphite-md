@@ -15,6 +15,14 @@
 
 import { isHostToWebview, isPreviewData } from '../shared/protocol';
 import type { PreviewData, TocNode } from '../shared/protocol';
+import { profiling, mark, span, report } from '../shared/perf';
+
+// First statement in the bundle, and deliberately so. In the webview the
+// `performance` clock starts at navigation, so this reading is how long the page
+// took to parse its HTML and the two scripts ahead of ours — mermaid.min.js
+// among them. That is most of what opening the preview costs, and nothing later
+// in this file can recover it.
+mark('page → script');
 
 const vscode = acquireVsCodeApi();
 
@@ -286,9 +294,11 @@ function buildGraph(container: HTMLElement, data: TocNode[]): Graph {
 
 const contentPane = byId('contentPane');
 
+const doneGraphs = span('buildGraph ×3');
 const contentGraph = buildGraph(byId('graphContent'), previewData.headings);
 const tablesGraph = buildGraph(byId('graphTables'), previewData.tables);
 const diagramsGraph = buildGraph(byId('graphDiagrams'), previewData.diagrams);
+doneGraphs();
 
 type ViewName = 'content' | 'tables' | 'diagrams';
 
@@ -779,6 +789,23 @@ contentPane.addEventListener('wheel', () => {
 // re-apply the restored scroll position once the diagrams change the
 // page height (mermaid replaces each .mermaid's content asynchronously)
 const mermaid = window.mermaid;
+
+// The profile is printed once, when both halves of the load have settled: the
+// init frame and mermaid's own (asynchronous, and much slower) pass. Either can
+// finish first, so neither can print on its own without reporting a half-empty
+// list. Both flags are also what let a release build skip the report entirely —
+// see the guard in reportWhenSettled.
+let mermaidDone = false;
+let initDone = false;
+
+function reportWhenSettled(): void {
+  if (!profiling) return;
+  if (!mermaidDone || !initDone) return;
+  report(
+    `preview load · ${previewData.headings.length} headings, ${previewData.tables.length} tables, ${previewData.diagrams.length} diagrams`
+  );
+}
+
 if (mermaid) {
   mermaid.initialize({
     startOnLoad: false,
@@ -795,23 +822,40 @@ if (mermaid) {
     },
   });
   const heightBefore = contentPane.scrollHeight;
+  // Times the whole async pass, not just the call: what a reader waits for is
+  // the moment the diagrams are on screen, which is when this promise settles.
+  const doneMermaid = span('mermaid.run');
   mermaid
     .run({ querySelector: '.mermaid' })
     .then(() => {
+      doneMermaid();
+      mermaidDone = true;
       if (!userScrolled && contentPane.scrollHeight !== heightBefore && persistedScrollTop !== null) {
         contentPane.scrollTop = persistedScrollTop;
       }
+      reportWhenSettled();
     })
     .catch((err: unknown) => {
+      doneMermaid();
+      mermaidDone = true;
       console.error('graphite.md: failed to render mermaid diagrams', err);
+      reportWhenSettled();
     });
+} else {
+  mermaidDone = true;
 }
 
 // ================= init =================
 requestAnimationFrame(() => {
+  // Inside the frame, not around it: the span should measure the work this
+  // block does, not the ~16 ms it spent waiting for the next frame.
+  const doneInit = span('init');
   contentGraph.drawGraph();
   onScroll();
   if (persistedScrollTop !== null) contentPane.scrollTop = persistedScrollTop;
+  doneInit();
+  initDone = true;
+  reportWhenSettled();
 });
 window.addEventListener('resize', () => requestAnimationFrame(() => {
   contentGraph.drawGraph();

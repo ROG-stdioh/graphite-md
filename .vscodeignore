@@ -23,10 +23,14 @@ samples/**
 docs/**
 features/**
 cucumber.js
-# Every dev/test bundle lands in out/ beside extension.js, which is the one
-# file in there that must ship. The glob is deliberately narrow: it matches
-# *.bundle.js and never extension.js.
-out/*.bundle.js
+# Every dev/test bundle lands in out/ beside extension.js, which is the one file
+# in there that must ship. Stated as "everything, except" rather than as a list
+# of what to drop: the previous form was the narrow glob `out/*.bundle.js`, and
+# it went stale the first time a bundle landed in a subdirectory
+# (out/profile/, from scripts/profile.ts) — which package-check caught, but only
+# because it is asked to. A negation cannot go stale that way.
+out/**
+!out/extension.js
 # Build and analysis config. These patterns are written to cover the class, not
 # the instance: a bare "*.ext" here matches the root only (a glob does not cross
 # "/"), so these catch a future tsconfig.node.json or eslint.config.mjs without

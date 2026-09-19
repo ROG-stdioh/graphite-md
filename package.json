@@ -100,7 +100,11 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.ts && node scripts/copy-assets.ts",
+    "build:profile": "node esbuild.ts --profile && node scripts/copy-assets.ts",
     "watch": "node esbuild.ts --watch",
+    "watch:profile": "node esbuild.ts --watch --profile",
+    "profile": "node scripts/profile.ts",
+    "profile:webview": "node scripts/profile-webview.ts",
     "test:bdd": "cucumber-js",
     "check": "node scripts/render-check.ts && node scripts/graph-check.ts",
     "check:media": "node scripts/media-version-check.ts",
