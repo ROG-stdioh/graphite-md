@@ -203,13 +203,32 @@ interface Harness {
 // .section-head the scroll-spy reports, i.e. which row ends up active.
 function run(
   spyTarget: string,
-  opts: { state?: Record<string, unknown>; mermaid?: unknown } = {}
+  opts: {
+    state?: Record<string, unknown>;
+    mermaid?: unknown;
+    /** Elements the document should already hold, by id — a section body the
+     *  reader had folded, or one a click is about to fold. */
+    elements?: Record<string, StubEl>;
+    /** The `.section-head` carrying each `data-target`, so the selector the
+     *  webview uses to find a section's chevron has something to find. */
+    heads?: Record<string, StubEl>;
+    /** Report no layout box for every row, which is what a stale reference to a
+     *  previous build's rows looks like from inside drawGraph. */
+    detachRows?: boolean;
+  } = {}
 ): Harness {
   // Populated from STUB_IDS below, so the cast states what the loop
   // guarantees: every id in that list is present by the time this returns.
   const byId = {} as Record<string, StubEl> & Record<StubId, StubEl>;
   for (const id of STUB_IDS) {
     const el = makeEl('div');
+    el.id = id;
+    byId[id] = el;
+  }
+  // Added before the bundle runs, not after, because the page looks its own
+  // state up during the init frame: a section folded on the previous load has to
+  // be findable by the time restoreCollapsed goes looking for it.
+  for (const [id, el] of Object.entries(opts.elements ?? {})) {
     el.id = id;
     byId[id] = el;
   }
@@ -238,7 +257,14 @@ function run(
     getElementById: (id: string) => byId[id],
     querySelector: (sel: string) => {
       const m = /^\.accordion-header\[data-view="(\w+)"\]$/.exec(sel);
-      return m ? (accordionByView[m[1] ?? ''] ?? null) : null;
+      if (m) return accordionByView[m[1] ?? ''] ?? null;
+      // The one other selector this program looks anything up by. A section's
+      // chevron is reached through it, so without this a fold would move the
+      // body and leave the arrow pointing the wrong way, with nothing here to
+      // catch it — the `undefined` from a missing map entry would be read as
+      // "this heading has no chevron", which is the guard's legitimate case.
+      const head = /^\[data-target="([^"]*)"\]\.section-head$/.exec(sel);
+      return head ? (opts.heads?.[head[1] ?? ''] ?? null) : null;
     },
     querySelectorAll: (sel: string) => {
       if (sel === '.accordion-header') return accordionHeaders;
@@ -302,6 +328,8 @@ function run(
   const rows = graph.children.filter((c) => c.className && c.className.includes('toc-row'));
   rows.forEach((r, i) => { r.offsetTop = i * 32; r.offsetHeight = 32; });
   graph.scrollHeight = rows.length * 32;
+  // Before the init frame, because that is when drawGraph reads it.
+  if (opts.detachRows) rows.forEach((r) => { r.offsetParent = null; });
   rafQueue.splice(0).forEach((cb) => { cb(); }); // init rAF: drawGraph + onScroll
 
   const svg = graph.children.find((c) => c.tag === 'svg');
@@ -621,6 +649,83 @@ check('a re-render restores the stashed scroll position', s2.byId.contentPane.sc
 
 const s3 = run('', { state: {} });
 check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollTop === 0);
+
+// ---- a section the reader folded survives a re-render ----
+// Collapse is a class on the element, and a re-render replaces every element —
+// so without the copy kept in webview state, every keystroke sprang open every
+// section the reader had closed. The symptom is the preview undoing something
+// the reader did, which reads as the preview fighting back rather than as a
+// missing feature, and nothing in the page accounts for it.
+const folded = makeEl('div');
+const untouched = makeEl('div');
+run('', {
+  state: { collapsed: ['body-folded'] },
+  elements: { 'body-folded': folded, 'body-untouched': untouched },
+});
+check(
+  'a re-render brings back the folded sections and only those',
+  folded.classList.contains('collapsed') && !untouched.classList.contains('collapsed')
+);
+
+// An id the previous render produced and this one no longer has: the document
+// deleted that section while the panel was showing another file. It is skipped
+// rather than chased — and skipping has to not throw, since the id comes back
+// out of a store this program does not own.
+check('a remembered id the document no longer has is skipped', run('', { state: { collapsed: ['body-deleted'] } }).rows.length === 7);
+// The store is the host's, so its contents are `unknown` until read — the same
+// reason getState is typed the way it is. A value that is not a list of strings
+// is ignored rather than iterated.
+check('a collapsed value that is not a list is ignored', run('', { state: { collapsed: 'not-an-array' } }).rows.length === 7);
+
+// ---- clicking a heading folds its section, and remembers it ----
+// This handler moved from the heading element to the document when re-renders
+// began replacing headings: bound to the element, it died with the element and
+// left a heading that still looked clickable. What it does has not changed, so
+// this is the assertion the per-element version would have carried.
+const chev = makeEl('span');
+chev.className = 'chev';
+const clickHead = makeEl('h2');
+clickHead.className = 'section-head';
+clickHead.dataset.target = 'body-click';
+clickHead.closest = (sel: string) => (sel === '.section-head' ? clickHead : null);
+clickHead.querySelector = (sel: string) => (sel === '.chev' ? chev : null);
+const clickBody = makeEl('div');
+clickBody.className = 'section-body';
+
+const hc = run('', { elements: { 'body-click': clickBody }, heads: { 'body-click': clickHead } });
+fireClickOn(hc, clickHead);
+check('a heading click folds its section', clickBody.classList.contains('collapsed'));
+check('...and the arrow turns with it', chev.classList.contains('collapsed'));
+check(
+  '...and the fold is recorded for the next render',
+  Array.isArray(hc.state.collapsed) && hc.state.collapsed.includes('body-click')
+);
+
+fireClickOn(hc, clickHead);
+check('clicking it again unfolds the section', !clickBody.classList.contains('collapsed'));
+check('...turns the arrow back', !chev.classList.contains('collapsed'));
+check(
+  '...and drops it from the record',
+  Array.isArray(hc.state.collapsed) && !hc.state.collapsed.includes('body-click')
+);
+
+// ---- an outline that cannot lay itself out says so ----
+// drawGraph keeps the rows that have a layout box. Rows that are not in the
+// container — a stale reference to a previous build's rows — all filter out, the
+// svg is cleared, and the pane is simply blank: nothing throws, nothing is
+// logged, and the reader is looking at an outline with no entries and no reason.
+// The container's own visibility is what separates that from a graph inside a
+// folded accordion section, which is legitimately empty.
+const detached = run('', { detachRows: true });
+const warned = detached.posted.find((m) => m.type === 'log');
+check('an outline that laid out none of its rows says so', warned !== undefined && warned.level === 'warn');
+check(
+  '...naming how many rows it could not place',
+  typeof warned?.message === 'string' && warned.message.includes('7')
+);
+// The other half: a graph that drew itself is silent. Without this the check
+// above would pass for a webview that warned on every draw.
+check('...and an outline that drew itself posts nothing at all', base.posted.length === 0);
 
 // ---- a diagram that fails to render -> the host's Output Channel ----
 // mermaid rejects asynchronously and this file is synchronous from top to

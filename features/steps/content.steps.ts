@@ -301,19 +301,28 @@ Then<PreviewWorld>('the page allows scripts only from a nonce it issued itself',
   const [nonce] = nonces;
   assert.ok(nonce, 'script-src named a nonce with no value');
 
-  // A policy naming a nonce is only half of it. The page's own two scripts have
-  // to carry that same nonce, or the policy is signed with a key nothing holds
-  // and the preview's own code is refused alongside the document's — a blank
-  // panel with a policy that looks correct in the source.
-  for (const file of ['vendor/mermaid.min.js', 'preview.js']) {
-    // `[^"]*` on both sides of the name, because the URL carries a `?v=` query
-    // string after it — the version, which is scripts/media-version-check.ts's
-    // subject rather than this one's.
-    const tag = new RegExp(`<script[^>]*src="[^"]*${escapeRe(file)}[^"]*"[^>]*>`, 'i').exec(page)?.[0];
-    assert.ok(tag, `the page carries no <script> for ${file}`);
+  // A policy naming a nonce is only half of it. The page's own scripts have to
+  // carry that same nonce, or the policy is signed with a key nothing holds and
+  // the preview's own code is refused alongside the document's — a blank panel
+  // with a policy that looks correct in the source.
+  //
+  // Every script the page loads, rather than the two this used to name. Naming
+  // them made the scenario assert the composer's shape as well as the policy's:
+  // mermaid is emitted only for a document with a diagram to draw (the gate in
+  // src/webviewHtml.ts), so a document without one has no mermaid tag and this
+  // failed for a page whose policy was perfectly correct. It would also have
+  // covered a third script by neither the list nor a count.
+  //
+  // Scoped to the scripts that carry a `src`, which is exactly the set the page
+  // chose to load. A `<script>` written *in* the document has no nonce on
+  // purpose — that is the whole scenario above it — so it is not this check's
+  // subject and must not be swept up by it.
+  const scripts = [...page.matchAll(/<script[^>]*\ssrc="[^"]*"[^>]*>/gi)].map((m) => m[0]);
+  assert.ok(scripts.length > 0, 'the page loads no scripts at all, so the loop below proves nothing');
+  for (const tag of scripts) {
     assert.ok(
       tag.includes(`nonce="${nonce}"`),
-      `the page's own ${file} is not signed with the policy's nonce: ${tag}`
+      `a script the page loads is not signed with the policy's nonce: ${tag}`
     );
   }
 });
