@@ -50,6 +50,12 @@
         "title": "Open Preview to the Side",
         "category": "graphite.md",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "graphiteMd.showOutput",
+        "title": "Show Output",
+        "category": "graphite.md",
+        "icon": "$(output)"
       }
     ],
     "menus": {

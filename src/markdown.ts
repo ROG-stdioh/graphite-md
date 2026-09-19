@@ -16,6 +16,11 @@ import hljs from 'highlight.js';
 // outline data that crosses to the webview, so the host and the webview have to
 // name the same type or the guard in protocol.ts is checking something else.
 import type { TocNode } from './shared/protocol';
+// The sink, not a channel: `log` is a module-level forwarder whose default is
+// `console`, because this file is loaded by the check scripts and the BDD suite
+// with no editor around it. `activate()` calls setLogger to point it at the
+// Output Channel. See src/logger.ts.
+import { log } from './logger';
 
 export interface RenderResult {
   html: string;
@@ -99,32 +104,32 @@ try {
     } satisfies TexmathOptions
   );
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-texmath, math rendering will be disabled', err);
+  log.error('failed to register markdown-it-texmath, math rendering will be disabled', err);
 }
 try {
   md.use(markdownItSup); // ^2^
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-sup, superscripts will be disabled', err);
+  log.error('failed to register markdown-it-sup, superscripts will be disabled', err);
 }
 try {
   md.use(markdownItSub); // ~2~
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-sub, subscripts will be disabled', err);
+  log.error('failed to register markdown-it-sub, subscripts will be disabled', err);
 }
 try {
   md.use(markdownItIns); // ++underline++
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-ins, ++underlines++ will be disabled', err);
+  log.error('failed to register markdown-it-ins, ++underlines++ will be disabled', err);
 }
 try {
   md.use(markdownItMark); // ==mark==
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-mark, ==marks== will be disabled', err);
+  log.error('failed to register markdown-it-mark, ==marks== will be disabled', err);
 }
 try {
   md.use(markdownItFootnote);
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-footnote, footnotes will be disabled', err);
+  log.error('failed to register markdown-it-footnote, footnotes will be disabled', err);
 }
 
 // ---- blockquote -> .callout -------------------------------------------------

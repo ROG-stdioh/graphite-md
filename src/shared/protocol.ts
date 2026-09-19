@@ -31,10 +31,20 @@ export interface PreviewData {
 /** Host -> webview. */
 export type HostToWebview = { type: 'contentWidth'; value: number };
 
-/** Webview -> host. */
+/**
+ * Webview -> host.
+ *
+ * `log` exists because the webview has no other way to reach the user: its own
+ * console is invisible unless DevTools is open, so a diagram that failed to
+ * draw is silent, and silence is indistinguishable from "still working" — the
+ * exact question the Output Channel is opened to answer. The host treats the
+ * message as hostile in both directions: bounded, one-lined, and never given a
+ * stack it could not have earned. See `oneLine` in src/logger.ts.
+ */
 export type WebviewToHost =
   | { type: 'toggleTask'; line: number; checked: boolean }
-  | { type: 'openLink'; href: string };
+  | { type: 'openLink'; href: string }
+  | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -68,6 +78,11 @@ function matchesVariant(
 const webviewToHostCheckers: Record<WebviewToHost['type'], (v: Record<string, unknown>) => boolean> = {
   toggleTask: (v) => typeof v.line === 'number' && typeof v.checked === 'boolean',
   openLink: (v) => typeof v.href === 'string',
+  // The level is checked against the three names this union admits rather than
+  // for being a string: the host maps it onto a fixed set of channel methods,
+  // and a string that is not one of the three has nowhere to go.
+  log: (v) =>
+    (v.level === 'info' || v.level === 'warn' || v.level === 'error') && typeof v.message === 'string',
 };
 
 const hostToWebviewCheckers: Record<HostToWebview['type'], (v: Record<string, unknown>) => boolean> = {

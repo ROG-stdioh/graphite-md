@@ -89,9 +89,17 @@ export function parseSourceRef(src: string): SourceRef {
  * wrote the document, and the page's CSP is what decides whether it loads.
  * `uri` is a source that is already a complete address. `path` is one to be
  * joined onto a base, and `from` names which base.
+ *
+ * `reason` distinguishes the two refusals, which look identical from here and
+ * mean opposite things to a reader: an `https:` source is one the privacy
+ * default is holding back, and naming the setting that releases it is the whole
+ * of what can be said about it, while a `data:` source is admitted by the CSP
+ * and needs no comment at all. Only the first is worth a word in the log — a
+ * warning on a picture that is about to load correctly trains a reader to
+ * ignore warnings.
  */
 export type ImagePlan =
-  | { kind: 'refuse' }
+  | { kind: 'refuse'; reason: 'remote' | 'other' }
   | { kind: 'uri'; uri: string }
   | { kind: 'path'; path: string; from: 'folder' | 'document' };
 
@@ -114,8 +122,13 @@ export function planImageSource(src: string, inFolder: boolean): ImagePlan {
   // respect for the author's choice, it is refusal, and silent refusal at that.
   // VS Code converts these, so this converts them too.
   if (ref.scheme === 'file:') return { kind: 'uri', uri: src };
-  if (ref.scheme !== undefined) return { kind: 'refuse' };
-  if (ref.path === '') return { kind: 'refuse' }; // a bare "#fragment" — nothing to load
+  if (ref.scheme !== undefined) {
+    const overTheNetwork = ref.scheme === 'http:' || ref.scheme === 'https:';
+    return { kind: 'refuse', reason: overTheNetwork ? 'remote' : 'other' };
+  }
+  // A bare "#fragment" — nothing to load, and nothing setting-shaped to say
+  // about it either.
+  if (ref.path === '') return { kind: 'refuse', reason: 'other' };
 
   let path = ref.path;
   try {

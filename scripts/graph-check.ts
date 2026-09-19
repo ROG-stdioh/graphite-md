@@ -201,7 +201,10 @@ interface Harness {
 // builds fresh stubs, runs preview.js, lays out rows, and returns the
 // built rows + svg after the init rAF has flushed. `spyTarget` is the
 // .section-head the scroll-spy reports, i.e. which row ends up active.
-function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}): Harness {
+function run(
+  spyTarget: string,
+  opts: { state?: Record<string, unknown>; mermaid?: unknown } = {}
+): Harness {
   // Populated from STUB_IDS below, so the cast states what the loop
   // guarantees: every id in that list is present by the time this returns.
   const byId = {} as Record<string, StubEl> & Record<StubId, StubEl>;
@@ -251,7 +254,11 @@ function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}):
   const window = {
     addEventListener(type: string, fn: StubHandler) { (winHandlers[type] ??= []).push(fn); },
     ResizeObserver: undefined as unknown,
-    mermaid: undefined as unknown,
+    // Undefined for every run but the mermaid-failure one below, which is what
+    // makes the `else { mermaidDone = true }` branch the covered path by
+    // default and the failure branch an explicit case rather than a side effect
+    // of the harness not having a mermaid.
+    mermaid: opts.mermaid,
     __PREVIEW_DATA__: { headings: tree, tables: [], diagrams: [] } as {
       headings: StubTocNode[];
       tables: StubTocNode[];
@@ -615,6 +622,45 @@ check('a re-render restores the stashed scroll position', s2.byId.contentPane.sc
 const s3 = run('', { state: {} });
 check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollTop === 0);
 
+// ---- a diagram that fails to render -> the host's Output Channel ----
+// mermaid rejects asynchronously and this file is synchronous from top to
+// bottom, so the rejection is stood in for by a thenable that runs its catch
+// handler inline. Making the harness async to await one Promise.reject would
+// mean making every check in the file async; the code under test only ever
+// calls `.then().catch()`, so this exercises exactly that path, and what is
+// asserted below is what the webview posted rather than anything about timing.
+interface SyncThenable {
+  then(): SyncThenable;
+  catch(handler: (err: unknown) => void): SyncThenable;
+}
+const rejectedMermaid = (): SyncThenable => {
+  const chain: SyncThenable = {
+    then: () => chain,
+    catch: (handler) => {
+      handler(new Error('bad diagram'));
+      return chain;
+    },
+  };
+  return chain;
+};
+
+const mermaidFail = run('', { mermaid: { initialize() {}, run: rejectedMermaid } });
+const logMsg = mermaidFail.posted.find((m) => m.type === 'log');
+check('a diagram that fails to render posts a log message', logMsg !== undefined);
+check('the log message is an error', logMsg?.level === 'error');
+check(
+  'the log message names what failed',
+  typeof logMsg?.message === 'string' && logMsg.message.includes('mermaid')
+);
+// The stack is dropped at the sender, so this is asserting the sender's job
+// rather than the host's — but it is the sender's job that keeps a bundle's
+// internal frames out of a log the user reads.
+check(
+  'the log message carries no stack',
+  typeof logMsg?.message === 'string' && !logMsg.message.includes('\n    at ')
+);
+check('a failed diagram posts nothing else', mermaidFail.posted.length === 1);
+
 // ---- the host's guard must accept what this webview actually sends ----
 // The host runs isWebviewToHost() over every message before acting on it. If
 // the guard and the webview ever disagree, the webview posts, the host drops it
@@ -627,7 +673,7 @@ check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollT
 // why the check scripts need Node 24, which is also what CI pins.
 const { isWebviewToHost } = require('../src/shared/protocol.ts') as typeof import('../src/shared/protocol');
 
-const sent = [...cl.posted, ...lk.posted];
+const sent = [...cl.posted, ...lk.posted, ...mermaidFail.posted];
 check('the webview posted messages to check', sent.length > 0);
 check('every message the webview sends passes the host guard', sent.every((m) => isWebviewToHost(m)));
 
@@ -637,6 +683,10 @@ check('the host guard rejects a toggleTask with no checked flag',
   !isWebviewToHost({ type: 'toggleTask', line: 5 }));
 check('the host guard rejects a toggleTask with a string line',
   !isWebviewToHost({ type: 'toggleTask', line: '5', checked: true }));
+check('the host guard rejects a log with a level it cannot route',
+  !isWebviewToHost({ type: 'log', level: 'verbose', message: 'hi' }));
+check('the host guard rejects a log with no message',
+  !isWebviewToHost({ type: 'log', level: 'error' }));
 check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
 check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
 check('the host guard rejects null', !isWebviewToHost(null));

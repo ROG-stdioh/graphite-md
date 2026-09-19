@@ -16,6 +16,7 @@
 import { isHostToWebview, isPreviewData } from '../shared/protocol';
 import type { PreviewData, TocNode } from '../shared/protocol';
 import { profiling, mark, span, report } from '../shared/perf';
+import { oneLine } from '../logger';
 
 // First statement in the bundle, and deliberately so. In the webview the
 // `performance` clock starts at navigation, so this reading is how long the page
@@ -790,6 +791,40 @@ contentPane.addEventListener('wheel', () => {
 // page height (mermaid replaces each .mermaid's content asynchronously)
 const mermaid = window.mermaid;
 
+/**
+ * A message for the host's Output Channel.
+ *
+ * The webview's own console is invisible unless DevTools is open, so without
+ * this a diagram that failed to draw is silent — and silence is
+ * indistinguishable from "still working", which is the exact question the
+ * channel is opened to answer.
+ *
+ * Bounded here and bounded again on the far side. The two are not redundant:
+ * this one keeps the message this webview sends readable, and the host's holds
+ * even if what arrives was not sent by this webview at all.
+ */
+function logToHost(level: 'info' | 'warn' | 'error', message: string): void {
+  vscode.postMessage({ type: 'log', level, message: oneLine(message) });
+}
+
+/**
+ * An error's message, without its stack.
+ *
+ * A stack is host-side business — it names this bundle's internal frames and
+ * means nothing in a log the user reads — so it is dropped here rather than
+ * carried across and stripped later.
+ */
+function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (typeof err !== 'object' || err === null) return '';
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return '';
+  }
+}
+
 // The profile is printed once, when both halves of the load have settled: the
 // init frame and mermaid's own (asynchronous, and much slower) pass. Either can
 // finish first, so neither can print on its own without reporting a half-empty
@@ -838,7 +873,7 @@ if (mermaid) {
     .catch((err: unknown) => {
       doneMermaid();
       mermaidDone = true;
-      console.error('graphite.md: failed to render mermaid diagrams', err);
+      logToHost('error', `failed to render mermaid diagrams: ${describeError(err)}`);
       reportWhenSettled();
     });
 } else {
