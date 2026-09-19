@@ -169,7 +169,22 @@ function buildGraph(container: HTMLElement, data: TocNode[]): Graph {
   function drawGraph(): void {
     const visible = rows.filter((r) => r.el.offsetParent !== null);
     svg.innerHTML = '';
-    if (visible.length === 0) return;
+    if (visible.length === 0) {
+      // Rows exist and none of them laid out. Two things produce that, and only
+      // one of them is legitimate: the graph sits inside a collapsed accordion
+      // section, where the container is hidden as well and an empty svg is
+      // exactly right; or the rows are not in the container at all, which is
+      // what a reference to a previous build's rows looks like once the
+      // container has been rebuilt under it. The second draws a blank outline
+      // and says nothing — a preview that is simply empty, with no error
+      // anywhere to explain it. The container's own visibility is what tells
+      // them apart: a displayed container whose rows are all invisible can only
+      // mean the rows are somewhere else.
+      if (rows.length > 0 && container.offsetParent !== null) {
+        logToHost('warn', `the outline has ${rows.length} rows and laid out none of them`);
+      }
+      return;
+    }
 
     const totalH = container.scrollHeight;
     const maxDepth = visible.reduce((max, r) => Math.max(max, r.depth), 0);
@@ -295,6 +310,51 @@ function buildGraph(container: HTMLElement, data: TocNode[]): Graph {
 
 const contentPane = byId('contentPane');
 
+// ================= webview state =================
+// The one thing that survives the page being rebuilt. Every edit to the source
+// file re-sends webview.html (see extension.ts), which reloads this page — and
+// whatever the reader had arranged for themselves is gone with it unless it was
+// stashed here. Webview state outlives setHtml; only closing the panel loses it.
+//
+// It is one object rather than one value, because `setState` replaces what is
+// there rather than merging into it: two features writing their own field
+// independently would each erase the other's.
+const restored = readState(vscode.getState());
+const persistedScrollTop = restored.scrollTop;
+
+/**
+ * The ids of the section bodies the reader has folded away.
+ *
+ * Collapse is a class on the element, so it is exactly as durable as the element
+ * is — and a re-render replaces every element. Without this, every keystroke
+ * sprang open every section the reader had closed, which is the kind of thing
+ * that reads as the preview fighting back rather than as a missing feature.
+ *
+ * Held as ids rather than as element references for the same reason: the
+ * elements do not survive, and an id can be looked up again once they exist.
+ */
+const collapsedBodies = new Set<string>(restored.collapsed);
+
+function persistState(): void {
+  vscode.setState({ scrollTop: contentPane.scrollTop, collapsed: [...collapsedBodies] });
+}
+
+/**
+ * What the last page left behind.
+ *
+ * `getState()` is typed `unknown`, and it is right to be: the value comes back
+ * from the host, and this file is the only thing that ever put anything in it.
+ * Reading the two fields out is a check, not an assertion.
+ */
+function readState(raw: unknown): { scrollTop: number | null; collapsed: string[] } {
+  if (typeof raw !== 'object' || raw === null) return { scrollTop: null, collapsed: [] };
+  const { scrollTop, collapsed } = raw as { scrollTop?: unknown; collapsed?: unknown };
+  return {
+    scrollTop: typeof scrollTop === 'number' ? scrollTop : null,
+    collapsed: Array.isArray(collapsed) ? collapsed.filter((id): id is string => typeof id === 'string') : [],
+  };
+}
+
 const doneGraphs = span('buildGraph ×3');
 const contentGraph = buildGraph(byId('graphContent'), previewData.headings);
 const tablesGraph = buildGraph(byId('graphTables'), previewData.tables);
@@ -382,33 +442,81 @@ document.querySelectorAll<HTMLElement>('.accordion-header').forEach((header) => 
 
 // ================= collapsible content sections (prose collapse — separate
 //                    from the TOC graph, which is never collapsible itself) =================
-document.querySelectorAll<HTMLElement>('.section-head').forEach((head) => {
-  head.addEventListener('click', () => {
-    const body = byId(must(head.dataset.target, 'a section heading target'));
-    const chev = must(head.querySelector<HTMLElement>('.chev'), 'a section disclosure arrow');
-    body.classList.toggle('collapsed');
-    chev.classList.toggle('collapsed');
-  });
+// Delegated to the document rather than bound to each heading, because the
+// headings do not outlive a re-render — a page reload replaces every one of them
+// and the listeners bound to them go with it, leaving headings that look
+// clickable and are not. The three other click handlers in this file are already
+// on the document for the same reason; this was the last one holding a
+// reference to an element that goes away.
+//
+// A missing target is checked rather than asserted here, unlike the per-element
+// version it replaces. Bound to a heading, `data-target` was the renderer's own
+// markup and `must` was the right shape for it; delegated, this handler sees
+// whatever was clicked, and the losing case should be this handler doing nothing
+// rather than an exception thrown at the document.
+document.addEventListener('click', (e) => {
+  const head = closestOf(e.target, '.section-head');
+  if (!head) return;
+  const target = head.dataset.target;
+  if (target === undefined) return;
+  const body = document.getElementById(target);
+  if (!body) return;
+  setCollapsed(body, !body.classList.contains('collapsed'));
 });
 
 /**
- * Uncovers a section heading's disclosure arrow, if it has one.
+ * Folds or unfolds one section, in the DOM alone.
  *
- * Guarded rather than asserted, which is what the two callers below already did
- * between them. Nothing in this file navigates by chevron, so a heading without
- * one should lose nothing but its arrow's animation — not take the navigation
- * down with it.
+ * The chevron is part of it because it is the same piece of state drawn twice: a
+ * folded section and its arrow have never been allowed to disagree. Both halves
+ * are guarded rather than asserted, which is what the callers did between them
+ * before — nothing in this file navigates by chevron, so a heading without one
+ * should cost its arrow's animation and not the navigation.
  */
-function uncoverChevron(head: HTMLElement | null): void {
+function applyCollapsed(body: Element, collapsed: boolean): void {
+  body.classList.toggle('collapsed', collapsed);
+  const head = document.querySelector<HTMLElement>(`[data-target="${body.id}"].section-head`);
   const chev = head?.querySelector<HTMLElement>('.chev');
-  if (chev) chev.classList.remove('collapsed');
+  if (chev) chev.classList.toggle('collapsed', collapsed);
+}
+
+/**
+ * Folds or unfolds one section, and remembers it.
+ *
+ * Every site that changes a section's collapse state goes through here — the
+ * heading click, the walk up from a clicked anchor, the outline's own
+ * navigation, and a footnote backref. All four have to agree about the
+ * remembered set as well as the class now, which is what makes one function
+ * cheaper than four copies that drift apart.
+ */
+function setCollapsed(body: Element, collapsed: boolean): void {
+  applyCollapsed(body, collapsed);
+  if (body.id === '') return;
+  if (collapsed) collapsedBodies.add(body.id);
+  else collapsedBodies.delete(body.id);
+  persistState();
+}
+
+/**
+ * Puts back what the reader had folded away.
+ *
+ * Driven by the remembered ids rather than by scanning the document. An id the
+ * new render no longer produces is skipped rather than chased: a section the
+ * document has deleted is gone, and one it has renamed comes back open. There is
+ * no way to tell that a renamed section is the same section, so claiming
+ * otherwise would be a guess wearing persistence's clothes.
+ */
+function restoreCollapsed(): void {
+  for (const id of collapsedBodies) {
+    const body = document.getElementById(id);
+    if (body) applyCollapsed(body, true);
+  }
 }
 
 function expandAncestors(headEl: HTMLElement): void {
   let node = headEl.closest('.section-body');
   while (node) {
-    node.classList.remove('collapsed');
-    uncoverChevron(document.querySelector<HTMLElement>(`[data-target="${node.id}"].section-head`));
+    setCollapsed(node, false);
     node = node.parentElement?.closest('.section-body') ?? null;
   }
 }
@@ -461,10 +569,7 @@ function pulseDot(id: string): void {
 function navigateTo(id: string): void {
   const body = document.getElementById(id);
   const head = document.querySelector<HTMLElement>(`[data-target="${id}"].section-head`);
-  if (body) {
-    body.classList.remove('collapsed');
-    uncoverChevron(head);
-  }
+  if (body) setCollapsed(body, false);
   if (head) expandAncestors(head);
 
   const found = findRow(id);
@@ -638,8 +743,7 @@ document.addEventListener('click', (e) => {
   // it, and any ancestor sections, first
   let body = (own ?? target).closest('.section-body');
   while (body) {
-    body.classList.remove('collapsed');
-    uncoverChevron(document.querySelector<HTMLElement>(`[data-target="${body.id}"].section-head`));
+    setCollapsed(body, false);
     body = body.parentElement?.closest('.section-body') ?? null;
   }
 
@@ -752,24 +856,9 @@ if (window.ResizeObserver) {
 }
 
 // ================= scroll position survives re-renders =================
-// Every edit to the source file re-sends webview.html (see extension.ts),
-// which reloads this page — without this, toggling a checkbox or typing a
-// keystroke snaps the preview back to the top. Webview state persists
-// across setHtml calls (only a panel close loses it), so we stash the
-// scroll position there and restore it on load.
-const persistedScrollTop = readScrollTop(vscode.getState());
-
-/**
- * `getState()` is typed `unknown`, and it is right to be: the value comes back
- * from the host, and this file is the only thing that ever put anything in it.
- * Reading a number out of it is a check, not an assertion.
- */
-function readScrollTop(raw: unknown): number | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const { scrollTop } = raw as { scrollTop?: unknown };
-  return typeof scrollTop === 'number' ? scrollTop : null;
-}
-
+// Without this, toggling a checkbox or typing a keystroke snaps the preview back
+// to the top. Where it is stashed, and why that store is one object rather than
+// one value, is in the webview-state block at the top of this file.
 let saveScrollScheduled = false;
 let userScrolled = false;
 contentPane.addEventListener('scroll', () => {
@@ -777,7 +866,7 @@ contentPane.addEventListener('scroll', () => {
     saveScrollScheduled = true;
     requestAnimationFrame(() => {
       saveScrollScheduled = false;
-      vscode.setState({ scrollTop: contentPane.scrollTop });
+      persistState();
     });
   }
 }, { passive: true });
@@ -877,6 +966,14 @@ if (mermaid) {
       reportWhenSettled();
     });
 } else {
+  // No mermaid on the page. Since the tag is emitted only for a document that
+  // has a diagram, that is the ordinary state for most documents — but it is
+  // also what a document *with* diagrams looks like when the file failed to
+  // load, and the page cannot tell those apart from mermaid's absence alone. It
+  // does know how many diagrams it was handed, which is the half that does.
+  if (previewData.diagrams.length > 0) {
+    logToHost('warn', `this document has ${previewData.diagrams.length} diagrams but mermaid did not load`);
+  }
   mermaidDone = true;
 }
 
@@ -885,6 +982,12 @@ requestAnimationFrame(() => {
   // Inside the frame, not around it: the span should measure the work this
   // block does, not the ~16 ms it spent waiting for the next frame.
   const doneInit = span('init');
+  // Before the scroll is restored, and that ordering is the whole reason it is
+  // here rather than beside the state it reads: folding a section shortens the
+  // page, so a scroll position put back first would be clamped against a
+  // document taller than the one the reader left — landing short of where they
+  // were, and never recovering.
+  restoreCollapsed();
   contentGraph.drawGraph();
   onScroll();
   if (persistedScrollTop !== null) contentPane.scrollTop = persistedScrollTop;
