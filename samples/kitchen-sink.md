@@ -318,6 +318,78 @@ panel is created with `enableForms: false`.
   <button type="submit">Submit</button>
 </form>
 
+## Mixed HTML and Markdown
+
+The two syntaxes in one document, which is how a README is actually written.
+Inline HTML is transparent — a tag in the middle of a sentence is just a tag,
+and the Markdown around it is unaffected. Blocks are the surprising half, so
+most of this section is about them.
+
+Inline: a <mark>highlighted</mark> word, a <kbd>Ctrl</kbd> chord and an
+<abbr title="Too Long; Did Not Read">TL;DR</abbr> all sit inside this sentence,
+and **bold after a tag** still renders, as does `code` and a [link](https://example.com).
+
+### A block is raw until a blank line ends it
+
+Nothing inside this block is Markdown, because no blank line separates it from
+the tag that opened it:
+
+<div class="callout">
+**not bold**, *not italic*, and the two lines below are not a list:
+- one
+- two
+</div>
+
+The same block, with a blank line after the opening tag and another before the
+close, does render what is inside it. That is the form to reach for:
+
+<div class="callout">
+
+**Bold**, *italic*, and those same two lines, now a real list:
+
+- one
+- two
+
+</div>
+
+That class is the one a `>` blockquote produces, so a hand-written
+`<div class="callout">` draws the same halftone card. The styling keys off the
+class, not off which syntax wrote it.
+
+### The same blank line is what keeps a heading out of the block
+
+Two `####` headings follow, and only the second one reaches the outline. The
+first has no blank line above it, so the `</div>` before it swallowed the line
+into its raw block and it is text on the page rather than a section. Open the
+outline pane beside this and count them.
+
+<div class="callout">Raw block content, ending on this line.</div>
+#### Swallowed: no blank line above, so this is text rather than a heading
+
+#### Kept: one blank line above, so this is a real section
+
+### Markdown inside a raw table cell is raw too
+
+A `<table>` written by hand is raw throughout, cells included, so the asterisks
+below are shown rather than applied:
+
+<table>
+  <thead>
+    <tr><th>Written as</th><th>Shown as</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>**bold**</td><td>**bold** — the asterisks are literal</td></tr>
+  </tbody>
+</table>
+
+A Markdown table beside it, for contrast. Its cells do render inline syntax, and
+this one is in the Tables tab — the hand-written table above is not, because the
+outline is fed by ids the Markdown table renderer assigns:
+
+| Written as | Shown as |
+| :-- | :-- |
+| `**bold**` | **bold** |
+
 ## Edge Cases
 
 Deliberately awkward input that has broken the renderer before:

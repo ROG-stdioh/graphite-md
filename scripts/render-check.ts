@@ -10,6 +10,12 @@ const esbuild = require('esbuild') as typeof import('esbuild');
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 
+// The outline node shape, named here for the tree walk in the checks below. It
+// lives in the shared contract, which is where src/markdown.ts takes it from
+// too — an inline import query because this file is CommonJS and every other
+// import in it is written the same way.
+type TocNode = import('../src/shared/protocol').TocNode;
+
 const root = path.join(__dirname, '..');
 const bundle = path.join(root, 'out', 'render-check.bundle.js');
 const sample = path.join(root, 'samples', 'kitchen-sink.md');
@@ -113,6 +119,37 @@ async function main(): Promise<void> {
     fenced.includes('fenced.png') && !fenced.includes('resolved:fenced.png')
   );
 
+  // ---- mixed HTML and Markdown ----------------------------------------------
+  // Inline HTML is transparent, so the sample puts a tag in a sentence and the
+  // Markdown around it still renders.
+  check(
+    'inline HTML inside a Markdown paragraph renders',
+    /<abbr title="Too Long; Did Not Read">/.test(html) && /<strong>bold after a tag<\/strong>/.test(html)
+  );
+
+  // The block case turns on a blank line, and the sample carries both forms
+  // precisely so this can assert the difference rather than describe it: without
+  // a blank line the block is raw and its Markdown is text, with one it renders.
+  check(
+    'Markdown inside an unblanked HTML block stays literal',
+    /<div class="callout">\s*\*\*not bold\*\*/.test(html)
+  );
+  check('Markdown inside a blank-lined HTML block renders', /<div class="callout">\s*<p><strong>Bold<\/strong>/.test(html));
+
+  // The same blank line decides whether a heading exists at all, and the sample
+  // writes two `####` headings of which only one is a heading. A heading the
+  // block above it swallowed is not merely unstyled — it is missing from the
+  // outline, which is a silent failure, and that is why it is asserted rather
+  // than left to the eye. `Kept` is nested under its `###`, so this has to look
+  // through the tree rather than at the roots.
+  const hasHeading = (label: string): boolean => {
+    const anyIn = (nodes: TocNode[]): boolean =>
+      nodes.some((n) => n.label.startsWith(label) || anyIn(n.children ?? []));
+    return anyIn(r.headings);
+  };
+  check('a heading with no blank line above it never becomes one', !hasHeading('Swallowed'));
+  check('a heading with a blank line above it does', hasHeading('Kept'));
+
   // ---- structure ------------------------------------------------------------
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
   check('second H1 stays in the outline', r.headings.some((h) => h.label.startsWith('A Second Top-Level Heading')));
@@ -126,7 +163,7 @@ async function main(): Promise<void> {
     return !!h6 && h6.label.startsWith('H6:');
   })());
   check('outline has multiple roots', r.headings.length >= 6);
-  check('tables collected (2)', r.tables.length === 2);
+  check('tables collected (3)', r.tables.length === 3);
   check('diagrams collected (2)', r.diagrams.length === 2);
   check('task checkboxes with source lines', /task-checkbox/.test(html) && /data-line="\d+"/.test(html));
   check('checked + unchecked boxes both emitted', /task-checkbox checked/.test(html) && /class="task-checkbox"/.test(html));
