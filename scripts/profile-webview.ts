@@ -310,6 +310,48 @@ async function main(): Promise<void> {
 
     const docs = [
       { label: 'samples/kitchen-sink.md', source: fs.readFileSync(path.join(root, 'samples', 'kitchen-sink.md'), 'utf8') },
+      {
+        // The other shape, and the one the mermaid gate exists for: prose,
+        // headings, a table and a footnote, and no diagram anywhere. It is what
+        // most documents look like, and every one of them used to download and
+        // execute 3.18 MB of diagram renderer to draw nothing.
+        //
+        // Written here rather than added to samples/ so that the sample folder
+        // stays what it is — the one document a person opens to see everything
+        // at once — and this stays what it is, a measurement.
+        label: 'a document with no diagram (the common case)',
+        source: [
+          '# Release Notes',
+          '',
+          'A short standfirst paragraph, so the page has a title and a subtitle.',
+          '',
+          '## What changed',
+          '',
+          'A paragraph of prose, long enough to be a paragraph, with **bold** and',
+          '`code` in it, a [link](https://example.com) and a footnote.[^1]',
+          '',
+          '| Field | Value |',
+          '| :-- | --: |',
+          '| Version | 0.2.0 |',
+          '| Renderer | markdown-it |',
+          '',
+          '### A sub-section',
+          '',
+          '- a bullet',
+          '- another bullet, with ==highlight== and H~2~O in it',
+          '',
+          '#### A deeper one',
+          '',
+          '> A quote, for the halftone pass.',
+          '',
+          '## And another section',
+          '',
+          'Text under it.',
+          '',
+          '[^1]: And the note it points at.',
+          '',
+        ].join('\n'),
+      },
     ];
 
     for (const doc of docs) {
@@ -376,9 +418,16 @@ async function main(): Promise<void> {
             ? '      loads 2 and 3 agree, so this is a steady state and not a browser still warming.'
             : '      loads 2 and 3 disagree — still warming; treat the load-3 figure as a ceiling, not the cost.'
         );
-        console.log('\n      where the difference between load 1 and load 2 comes from:');
-        console.log(`        fetching mermaid.min.js   ${fetchAt(cold, 'mermaid\\.min\\.js').toFixed(1)} ms → ${fetchAt(reload, 'mermaid\\.min\\.js').toFixed(1)} ms   (HTTP cache)`);
-        console.log(`        compile + execute it      ${(parseAt(cold) - fetchAt(cold, 'mermaid\\.min\\.js')).toFixed(1)} ms → ${(parseAt(reload) - fetchAt(reload, 'mermaid\\.min\\.js')).toFixed(1)} ms   (code cache)`);
+        // Only where there is a mermaid to account for. A page that never
+        // fetched it reports no entry for it, and the subtraction below would
+        // print NaN as though it were a measurement.
+        if (Number.isFinite(fetchAt(cold, 'mermaid\\.min\\.js'))) {
+          console.log('\n      where the difference between load 1 and load 2 comes from:');
+          console.log(`        fetching mermaid.min.js   ${fetchAt(cold, 'mermaid\\.min\\.js').toFixed(1)} ms → ${fetchAt(reload, 'mermaid\\.min\\.js').toFixed(1)} ms   (HTTP cache)`);
+          console.log(`        compile + execute it      ${(parseAt(cold) - fetchAt(cold, 'mermaid\\.min\\.js')).toFixed(1)} ms → ${(parseAt(reload) - fetchAt(reload, 'mermaid\\.min\\.js')).toFixed(1)} ms   (code cache)`);
+        } else {
+          console.log('\n      mermaid was never fetched — this page has no diagram to draw.');
+        }
       }
     }
 

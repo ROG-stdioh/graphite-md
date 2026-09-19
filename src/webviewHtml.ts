@@ -92,6 +92,27 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
     diagrams: options.diagrams,
   };
 
+  // mermaid is emitted only when the document has a diagram to draw.
+  //
+  // It is 3.18 MB of JavaScript, and the page parses and executes it on every
+  // load — measured on this machine at 164 ms of a 169 ms reload, which makes it
+  // the dominant cost of the preview by an order of magnitude. Every document
+  // paid it, including the great majority that hold no diagram at all, and no
+  // amount of work anywhere else in the page can get that time back. So the tag
+  // is simply not there when there is nothing for it to do.
+  //
+  // The webview is already written for its absence — `window.mermaid` is
+  // undefined and the diagram pass is skipped — but an absence is now ambiguous,
+  // since it means either "this document has no diagrams" or "this document has
+  // diagrams and mermaid failed to load". extension.ts tells them apart from the
+  // side that knows which one it built, and the webview reports the second to
+  // the Output Channel. That is the whole reason the decision lives here rather
+  // than being left to a runtime check in the page.
+  const mermaidTag =
+    options.diagrams.length === 0
+      ? ''
+      : `  <script nonce="${nonce}" src="${mediaUrl('vendor/mermaid.min.js')}"></script>\n`;
+
   // The KaTeX stylesheet is the one media file whose own dependencies are not
   // versioned here: its 60 `url(fonts/…)` references resolve against the
   // stylesheet's URL but do not inherit its query string, so a `?v=` on this
@@ -138,8 +159,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   </div>
 
   <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${JSON.stringify(initialData)};</script>
-  <script nonce="${nonce}" src="${mediaUrl('vendor/mermaid.min.js')}"></script>
-  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
+${mermaidTag}  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
 </body>
 </html>`;
 }

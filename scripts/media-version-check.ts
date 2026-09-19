@@ -32,12 +32,24 @@ const root = path.join(__dirname, '..');
 const bundle = path.join(root, 'out', 'webview-html.bundle.js');
 const mediaDir = path.join(root, 'media');
 
-// Every file the page loads. Kept as a list rather than derived, because the
+// Every file the page can load. Kept as a list rather than derived, because the
 // per-file assertion below — that each URL carries the version of the file it
 // names, and not some other file's — needs to know which file each one is. A
-// fifth media file therefore fails the count check until it is named here,
-// which is the point: it is the moment someone has to say what the page loads.
+// fifth media file therefore fails the count check until it is named here, which
+// is the point: it is the moment someone has to say what the page loads.
+//
+// mermaid is on the list but not in every page — it is emitted only for a
+// document that has a diagram to draw, and the gate is asserted further down.
+// The list is what the page can load, and the checks below say when.
 const LOADED = ['preview.css', 'preview.js', 'vendor/katex/katex.min.css', 'vendor/mermaid.min.js'];
+
+/** An outline node, named for the one the build below is handed. */
+type TocNode = import('../src/shared/protocol').TocNode;
+
+// A document that has a diagram, because that is the only kind that loads
+// mermaid. Everything else in the page is identical either way, which is what
+// lets the checks further down compare the two builds field for field.
+const A_DIAGRAM: TocNode[] = [{ label: 'Diagram', target: 'diagram-1' }];
 
 async function main(): Promise<void> {
   await esbuild.build({
@@ -65,7 +77,7 @@ async function main(): Promise<void> {
 
   // The stand-in URI keeps the path it was handed, so the assertions can see
   // which file each URL names without an editor in the room.
-  const build = (dir: string): { html: string; asked: string[] } => {
+  const build = (dir: string, diagrams: TocNode[] = A_DIAGRAM): { html: string; asked: string[] } => {
     const asked: string[] = [];
     const html = buildWebviewHtml({
       mediaDir: dir,
@@ -80,7 +92,7 @@ async function main(): Promise<void> {
       bodyHtml: '<p>body</p>',
       headings: [],
       tables: [],
-      diagrams: [],
+      diagrams,
     });
     return { html, asked };
   };
@@ -123,6 +135,42 @@ async function main(): Promise<void> {
     `every URL in the page carries a version (${urls.length} found)`,
     urls.length > 0 && urls.every((u) => u.includes('?v=')),
     `unversioned: ${urls.filter((u) => !u.includes('?v=')).join(', ')}`
+  );
+
+  // ---- mermaid is loaded only when there is a diagram to draw ---------------
+  // The gate is the single largest thing this extension does for its own speed:
+  // mermaid is 3.18 MB, and a page that carries it parses and executes all of it
+  // before a reader sees anything. Measured on the machine this was written on,
+  // that is 164 ms of a 169 ms reload — for every document, including the great
+  // majority that hold no diagram at all. A tag that is present and merely
+  // unused costs exactly the same as one that is used, so the check has to be on
+  // the tag rather than on the work.
+  const withDiagram = build(mediaDir);
+  const withoutDiagram = build(mediaDir, []);
+  check(
+    'a document with a diagram loads mermaid',
+    withDiagram.asked.includes('vendor/mermaid.min.js')
+  );
+  check(
+    'a document with no diagram loads no mermaid at all',
+    !withoutDiagram.asked.includes('vendor/mermaid.min.js') &&
+      !withoutDiagram.html.includes('mermaid.min.js'),
+    'a script tag left in the page costs the download and the parse whether or not it is ever called'
+  );
+  // The gate has to be a removal and not a rewrite: a page that dropped mermaid
+  // by also dropping the version off something else would pass the two checks
+  // above and break the caching they exist to protect.
+  check(
+    'gating mermaid leaves the rest of the page untouched',
+    LOADED.filter((f) => f !== 'vendor/mermaid.min.js').every(
+      (f) => versionOf(withoutDiagram.html, f) === versionOf(withDiagram.html, f)
+    ),
+    'the gate is meant to remove one script tag and change nothing else'
+  );
+  const withoutUrls = [...withoutDiagram.html.matchAll(/(?:href|src)="([^"]*)"/g)].map((m) => m[1] ?? '');
+  check(
+    `the diagram-less page is the same page minus one URL (${withoutUrls.length} found)`,
+    withoutUrls.length === urls.length - 1 && withoutUrls.every((u) => u.includes('?v='))
   );
 
   // ---- a version that follows the file, not the path ------------------------
