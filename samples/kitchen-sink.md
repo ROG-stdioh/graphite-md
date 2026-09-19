@@ -4,6 +4,23 @@ Everything the preview can render, in one file. Open this in the Extension
 Development Host (`npm run build`, then F5) to eyeball the whole feature set at
 once, or point the check scripts at it:
 
+**Open the enclosing folder, not just this file.** A preview may load local
+images from the workspace folders it was created with, or — when the document
+belongs to none — from the document's own directory, and nothing else. That is
+what VS Code's own Markdown preview does, and it matters here because this file
+references `../images/`, one level *above* the folder it sits in. Opened as a
+bare file there is no workspace folder to cover that, so those images are
+refused and every one of them is a broken box. F5 opens an empty window, so
+either open this folder in it first (File → Open Folder), or launch the host
+with the folder directly:
+
+```
+code --extensionDevelopmentPath=<repo> <repo>
+```
+
+Changing folders does not retarget an already-open panel — its roots were fixed
+when it was created — so reopen the preview afterwards.
+
 ```
 node scripts/render-check.js
 node scripts/graph-check.js
