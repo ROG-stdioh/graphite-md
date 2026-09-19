@@ -84,7 +84,11 @@ async function main(): Promise<void> {
   // the markup's own text. `&lt;` anywhere in a place the document wrote `<` is
   // the failure, and it is the one a reader sees.
   check('raw HTML renders as markup', /<kbd>Ctrl<\/kbd>/.test(html) && /<abbr title="Application Programming Interface">/.test(html));
-  check('a raw HTML table renders as a table', /<table>[\s\S]*?<\/table>/.test(html));
+  // Matches any attributes rather than the bare `<table>` this used to look for,
+  // because the scan below now puts an id on this tag — and it anchors on a cell
+  // only the hand-written table carries, which is what keeps it a check about
+  // the raw table rather than about Markdown tables in general.
+  check('a raw HTML table renders as a table', /<table\b[^>]*>[\s\S]*?<td>Markdown parse<\/td>/.test(html));
   check('raw HTML blocks render (details/dl/figure)', /<details>/.test(html) && /<dl>/.test(html) && /<figcaption>/.test(html));
   check('comments pass through as real comments', /<!--[\s\S]*?-->/.test(html) && !html.includes('&lt;!--'));
 
@@ -150,6 +154,83 @@ async function main(): Promise<void> {
   check('a heading with no blank line above it never becomes one', !hasHeading('Swallowed'));
   check('a heading with a blank line above it does', hasHeading('Kept'));
 
+  // ---- tables get their ids from one scan ------------------------------------
+  // The Tables tab is built from these ids, so what it lists is exactly what the
+  // scan found — which makes the scan the thing to assert rather than the tab.
+  //
+  // Every document below opens with a heading on purpose. A table written before
+  // the first one lands in the intro block, which no scan covers, so a check
+  // without a heading would pass whether or not the scan worked at all — it
+  // would be asserting the absence of a thing that was never in scope.
+  const rawTable = renderMarkdown('## T\n\n<table>\n<tr><td>a</td></tr>\n</table>').html;
+  check('a raw HTML table is given an id', /<table id="table-1">/.test(rawTable));
+
+  // Read back out of the tag rather than assumed, so a table the author named
+  // keeps that name — it is the anchor they can link to, and inventing a second
+  // one for it would break every link already written to it.
+  const named = renderMarkdown('## T\n\n<table id="totals">\n<tr><td>a</td></tr>\n</table>');
+  check('a table the author named keeps that name', /<table id="totals">/.test(named.html));
+  check('and the outline targets what the author named', named.tables[0]?.target === 'totals');
+
+  // The reason the id is assigned by a scan and not by the renderer: the two run
+  // in different orders, and a section holding both syntaxes is where they
+  // disagree. Raw first, Markdown second, and the numbering has to say so —
+  // assigning here in render order would number them backwards and list them
+  // that way.
+  const both = renderMarkdown('## T\n\n<table>\n<tr><td>raw</td></tr>\n</table>\n\n| a |\n| - |\n| md |\n');
+  check(
+    'a raw table and a Markdown one are numbered in document order',
+    both.tables.length === 2 &&
+      both.tables[0]?.target === 'table-1' &&
+      both.tables[1]?.target === 'table-2' &&
+      both.html.indexOf('id="table-1"') < both.html.indexOf('id="table-2"')
+  );
+
+  // The scan is a regular expression over rendered HTML, so a table *shown* as
+  // text is how it goes wrong: a document about HTML has to be able to write
+  // `<table>` without the outline quietly gaining an entry for it. Both the
+  // fenced and the indented form, because they take different paths through
+  // markdown-it and only one of them was ever looked at.
+  const shownAsText = renderMarkdown('## T\n\n```\n<table>\n```\n\n    <table>\n');
+  check(
+    'a table shown as code is neither given an id nor listed',
+    shownAsText.html.includes('&lt;table&gt;') &&
+      !shownAsText.html.includes('id="table-') &&
+      shownAsText.tables.length === 0
+  );
+
+  // The other direction from the code case: markup that is not a table at all.
+  // A word boundary sits between the `-` and the `w` here, so a pattern written
+  // with `\b` would take this custom element for a table and the outline would
+  // gain an entry that scrolls to something that is not one.
+  const customElement = renderMarkdown('## T\n\n<table-widget rows="3"></table-widget>\n');
+  check(
+    'an element whose name merely starts with "table" is not a table',
+    customElement.tables.length === 0 && !customElement.html.includes('id="table-1"')
+  );
+
+  // Every row the Tables tab lists has to point at an element that is actually
+  // in the page. A target that is not is a row that looks like a link and does
+  // nothing when it is clicked — the failure this change is about, one step
+  // further on, and the one an id assigned without being written would produce.
+  // The closing quote is part of the needle so `table-1` cannot be satisfied by
+  // `table-11`.
+  check(
+    'every table target the outline lists is an element on the page',
+    r.tables.length > 0 && r.tables.every((t) => html.includes(`id="${t.target}"`))
+  );
+
+  // Two ways to end up with two ids on one tag — overwriting one the author
+  // wrote, and adding a class to a tag that already has one — asserted as the
+  // single invariant both would break.
+  const attrCount = (tag: string, attr: string): number =>
+    (tag.match(new RegExp(`\\s${attr}=`, 'g')) ?? []).length;
+  const tableTags = html.match(/<table\b[^>]*>/gi) ?? [];
+  check(
+    'no table tag carries a duplicated attribute',
+    tableTags.length > 0 && tableTags.every((t) => attrCount(t, 'id') <= 1 && attrCount(t, 'class') <= 1)
+  );
+
   // ---- structure ------------------------------------------------------------
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
   check('second H1 stays in the outline', r.headings.some((h) => h.label.startsWith('A Second Top-Level Heading')));
@@ -163,7 +244,9 @@ async function main(): Promise<void> {
     return !!h6 && h6.label.startsWith('H6:');
   })());
   check('outline has multiple roots', r.headings.length >= 6);
-  check('tables collected (3)', r.tables.length === 3);
+  // Six, not three. The sample's three Markdown tables are joined by the three
+  // written by hand — including the one the document named itself.
+  check('tables collected (6)', r.tables.length === 6);
   check('diagrams collected (2)', r.diagrams.length === 2);
   check('task checkboxes with source lines', /task-checkbox/.test(html) && /data-line="\d+"/.test(html));
   check('checked + unchecked boxes both emitted', /task-checkbox checked/.test(html) && /class="task-checkbox"/.test(html));

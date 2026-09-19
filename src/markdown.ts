@@ -173,19 +173,75 @@ function claimId(base: string): string {
   return id;
 }
 
-// ---- table -> .md-table + a stable id, so the Tables TOC tab can link to it --
+// ---- table -> .md-table, and an id assigned after the fact ------------------
+// No id is assigned here. This rule fires in *render* order, and a section
+// holding a table written in raw HTML next to one written in Markdown is
+// numbered by two different passes — so leaving the id to this rule would
+// allocate the Markdown table's first whatever order they appear in, and the
+// Tables tab would list them backwards. The id comes from one scan over the
+// finished HTML instead (collectTables, below), which is the only place in the
+// renderer a table is given a name.
+//
+// The class is a hook and only a hook: preview.css styles every table in the
+// pane, so nothing depends on it and nothing should start to.
+md.renderer.rules.table_open = () => `<table class="md-table">`;
+
+// A `<table` that opened a tag, and the id that tag may already carry.
+//
+// The lookahead rather than a `\b`, because a word boundary sits between the
+// `-` and the `w` of `<table-widget>` — a custom element is not a table, and an
+// outline entry that scrolls to one is worse than no entry at all. What follows
+// a real tag name is always a space, a `>` or a `/`.
+//
+// The leading `\s` in the id pattern is the same idea in the other direction:
+// `\bid` matches the id in `data-id`, so a `<table data-id="grid">` would read
+// as a table that already had a name. It is captured rather than merely
+// matched, because replacing an id has to put that whitespace back or the new
+// attribute runs into the one before it.
+const TABLE_TAG = /<table(?=[\s/>])[^>]*>/gi;
+const TABLE_ID = /(\s)id\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
 let tableCounter = 0;
-md.renderer.rules.table_open = () => {
-  // The counter keeps its `table-N` shape even when it has to step over a name
-  // a heading claimed, because collectTables finds these ids again by that
-  // shape — a bumped `table-1-1` would drop the table out of the outline.
+
+/**
+ * The next free `table-N`.
+ *
+ * The counter keeps its shape even when it has to step over a name a heading
+ * claimed, because the shape is what the Tables tab is built from — a bumped
+ * `table-1-1` would read as something else entirely. claimId cannot do this: it
+ * suffixes the whole base, which is right for `body-text-1` and wrong here.
+ */
+function claimTableId(): string {
   do {
     tableCounter += 1;
   } while (claimedIds.has(`table-${tableCounter}`));
   const id = `table-${tableCounter}`;
   claimedIds.add(id);
-  return `<table class="md-table" id="${id}">`;
-};
+  return id;
+}
+
+/** A `<table>` tag's own `id`, whichever quote style it was written in. */
+function authoredTableId(tag: string): string | undefined {
+  const m = TABLE_ID.exec(tag);
+  return m?.[2] ?? m?.[3];
+}
+
+/**
+ * A `<table>` tag carrying `id`.
+ *
+ * An id it already had is replaced rather than added to: two `id` attributes on
+ * one tag is not a rendering error, it is a silent misdirection — the browser
+ * takes the first and the outline targets the second. The quote style the
+ * author used is kept, so a tag that is being given the name it already had
+ * comes back out unchanged.
+ */
+function withTableId(tag: string, id: string): string {
+  const m = TABLE_ID.exec(tag);
+  if (m === null) return tag.replace(/^<table/i, `<table id="${id}"`);
+  const quote = m[2] === undefined ? "'" : '"';
+  const end = m.index + m[0].length;
+  return `${tag.slice(0, m.index)}${m[1] ?? ' '}id=${quote}${id}${quote}${tag.slice(end)}`;
+}
 
 // Reads a token the stream guarantees is there. noUncheckedIndexedAccess
 // cannot see that invariant, and both alternatives lose something: a silent
@@ -537,18 +593,36 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     return md.renderer.render(toks, md.options, env);
   }
 
+  // The one place a table is given an id. `table_open` deliberately emits none,
+  // so this scan is the single source — see the note above that rule — and it
+  // runs in document order because a section's body is rendered and scanned
+  // before its children are.
+  //
+  // A table the author named keeps that name, so `<table id="mine">` stays the
+  // anchor they can link to. It goes through the same allocator as everything
+  // else rather than being taken as written, because a name can already be
+  // spoken for: `id="totals"` under `## Totals` collides with the heading's own
+  // anchor. The heading keeps the bare slug — that is the anchor every other
+  // Markdown renderer produces for `## Totals`, and the one a reader's links
+  // point at — and the table takes the next free name in that shape. Writing
+  // the author's id through unconditionally would put two elements on
+  // `id="totals"`, which is the silent misdirection claimedIds exists to
+  // prevent and is strictly worse than an id that moved.
   function collectTables(html: string, sectionLabel: string): string {
-    // tableCounter was already advanced by the renderer; just label the ones
-    // that landed in this section's HTML by scanning for the ids we assigned
-    const matches = html.matchAll(/id="(table-\d+)"/g);
-    // The capture is mandatory in the pattern, so the filter never drops
-    // anything — it is how the type says so. `?? ''` would instead invent an
-    // empty target that the outline would then try to scroll to.
-    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
-    ids.forEach((id, i) => {
-      tables.push({ label: ids.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel, target: id });
+    const targets: string[] = [];
+    const scanned = html.replace(TABLE_TAG, (tag) => {
+      const authored = authoredTableId(tag);
+      const id = authored === undefined ? claimTableId() : claimId(authored);
+      targets.push(id);
+      return withTableId(tag, id);
     });
-    return html;
+    targets.forEach((target, i) => {
+      tables.push({
+        label: targets.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel,
+        target,
+      });
+    });
+    return scanned;
   }
 
   function collectDiagrams(html: string, sectionLabel: string): string {
