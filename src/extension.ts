@@ -447,6 +447,7 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
   // dev-only build.
   const startedAt = performance.now();
   const source = currentDoc.getText();
+  const textDone = performance.now();
   let result;
   try {
     result = renderMarkdown(source, {
@@ -460,12 +461,13 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     return;
   }
   doneRender();
+  const markdownDone = performance.now();
   announcedDoc = docKey;
   const { html, headings, tables, diagrams } = result;
 
   currentPanel.title = path.basename(currentDoc.fileName);
   const doneHtml = span('host: buildWebviewHtml');
-  webview.html = buildWebviewHtml({
+  const pageHtml = buildWebviewHtml({
     mediaDir: path.join(context.extensionPath, 'media'),
     // Returns a string, not a Uri. asWebviewUri hands back a Uri, and a Uri
     // interpolated into a template happens to stringify correctly — but
@@ -483,6 +485,18 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     diagrams,
   });
   doneHtml();
+  const htmlDone = performance.now();
+
+  // The assignment is its own span rather than the tail of the one above it.
+  // It hands the page to a different process, and on a panel's first render it
+  // waits on a webview that does not exist yet — so folding it into
+  // `buildWebviewHtml` reported a 0.4 ms string builder as the slowest stage of
+  // the pipeline. A stage that is mislabelled is worse than one that is
+  // missing: it sends the reader to optimise the wrong function.
+  const doneAssign = span('host: setWebviewHtml');
+  webview.html = pageHtml;
+  doneAssign();
+  const assignDone = performance.now();
 
   // The host half of the profile. It is printed here rather than in the webview
   // because the two run in different processes: this line lands in the
@@ -492,18 +506,26 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     `host render · ${path.basename(currentDoc.fileName)} · ${source.length} chars, ${source.split('\n').length} lines`
   );
 
-  // The line a user reads to see that the preview is keeping up. The first
-  // render of a document goes in at info and the rest at debug, because typing
-  // produces one of these per keystroke: someone with the channel open watching
-  // for trouble should not have to scroll past a paragraph of them to find it,
-  // and `debug` is the level whose whole meaning is "show me everything" —
-  // which is exactly what somebody chasing a slow preview wants.
-  const elapsed = performance.now() - startedAt;
+  // Every render, at info. The first cut logged a document's first render at
+  // info and the rest at debug to keep typing from filling the channel, which
+  // rebuilt the exact failure this channel exists to remove: after the opening
+  // line the log went quiet, and silence is indistinguishable from a preview
+  // that has stopped responding. Somebody who opens the channel because the
+  // preview is stuck needs the *current* state, not the state at load — so the
+  // line a reader needs is the one this increments, and one line per render is
+  // what that costs. PR 5's debounce is what turns it into one per pause.
+  const elapsed = assignDone - startedAt;
   const summary =
     `${oneLine(path.basename(currentDoc.fileName))} · ${source.length} bytes · ` +
     `${headings.length} headings, ${tables.length} tables, ${diagrams.length} diagrams · ${elapsed.toFixed(0)} ms`;
-  if (firstRenderForDoc) log.info(`rendered ${summary}`);
-  else log.debug(`rendered ${summary}`);
+  log.info(`rendered ${summary}`);
+  // The split, for when the total is the thing being questioned — which it is
+  // as soon as the total looks wrong. Four numbers about one number belongs at
+  // debug, where somebody already looking for detail will find it.
+  log.debug(
+    `  stages · text ${(textDone - startedAt).toFixed(0)} · markdown ${(markdownDone - textDone).toFixed(0)}` +
+      ` · html ${(htmlDone - markdownDone).toFixed(0)} · webview ${(assignDone - htmlDone).toFixed(0)} ms`
+  );
 }
 
 export function deactivate() {}
