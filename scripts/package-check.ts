@@ -111,6 +111,35 @@ async function main(): Promise<void> {
     );
   }
 
+  // Every command the manifest offers has to be registered in the shipped
+  // bundle. A contributed command that nobody registered still appears in the
+  // palette — VS Code reads the manifest, not the code — and reports "command
+  // not found" at the moment a user clicks it. Nothing else catches that: the
+  // manifest is valid, the build succeeds, and knip sees a string it has no
+  // reason to think is unused.
+  //
+  // A substring search rather than a parse of the call site. The id is in the
+  // bundle only if registerCommand was called with it — nothing else embeds the
+  // literal — so a match is evidence of registration and a miss is evidence of
+  // its absence. Matching `registerCommand("id"` instead would tie this to
+  // esbuild's quoting and spacing, and a check that fails because the bundler
+  // changed its mind about quotes is worse than the defect it guards.
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
+    contributes?: { commands?: { command?: unknown }[] };
+  };
+  const contributed = (manifest.contributes?.commands ?? [])
+    .map((entry) => entry.command)
+    .filter((id): id is string => typeof id === 'string');
+  const hostBundle = path.join(root, 'out/extension.js');
+  const hostSource = fs.existsSync(hostBundle) ? fs.readFileSync(hostBundle, 'utf8') : '';
+  for (const id of contributed) {
+    check(
+      `registers ${id}`,
+      hostSource.includes(id),
+      `contributed in package.json but never registered, so clicking it reports "command '${id}' not found" — or the bundle is stale, in which case run \`npm run build\``
+    );
+  }
+
   const unexpected = files.filter((f) => !ALLOWED.some((p) => p.test(f))).sort();
   check(
     `no unexpected files (${unexpected.length})`,

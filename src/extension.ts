@@ -8,11 +8,101 @@ import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTEN
 import { taskMarkerColumn } from './taskMarker';
 import { planImageSource } from './sourceRef';
 import { span, report } from './shared/perf';
+import { log, setLogger, describeCause, oneLine } from './logger';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let currentDoc: vscode.TextDocument | undefined;
 
+/**
+ * What has already been said about the document on screen.
+ *
+ * Both are keyed on the document and reset when the preview moves to another
+ * one, because every answer here is per file: a render line that is worth
+ * reading once, and an image that is worth warning about once. Without the
+ * second, a document holding five remote images would repeat all five on every
+ * keystroke — which is the noise that makes a log unreadable at exactly the
+ * moment somebody is reading it.
+ */
+let announcedDoc: string | undefined;
+const refusedImages = new Set<string>();
+
+/**
+ * When `activate()` ran, on the same clock the render line uses.
+ *
+ * The stages split below starts counting at the render, which silently credits
+ * everything before it — the extension host loading a 1.7 MB bundle it did not
+ * have in memory a moment ago, the panel being created — to whatever stage
+ * happens to come first. One number for that stretch names it instead of hiding
+ * it, and it is the number that made a four-second freeze look like a render.
+ */
+let activatedAt = 0;
+
+/**
+ * The extension's own version, off the manifest VS Code has already loaded.
+ *
+ * Guarded rather than cast: `packageJSON` is typed `any`, and a version line
+ * that prints "undefined" is worse than one that admits it does not know.
+ */
+function packageVersion(context: vscode.ExtensionContext): string {
+  const manifest: unknown = context.extension.packageJSON;
+  const version =
+    typeof manifest === 'object' && manifest !== null
+      ? (manifest as Record<string, unknown>).version
+      : undefined;
+  return typeof version === 'string' ? version : 'unknown version';
+}
+
+/**
+ * A log line the webview sent.
+ *
+ * The webview is a separate context and its text originates in the document, so
+ * nothing about it is trusted: it is one-lined and bounded here as well as at
+ * the point it was written, because the two checks defend different things. The
+ * sender's keeps its own message readable; this one holds even if the sender
+ * turns out not to be this extension's webview at all.
+ */
+function logFromWebview(level: 'info' | 'warn' | 'error', message: string): void {
+  const text = `webview: ${oneLine(message)}`;
+  switch (level) {
+    case 'info':
+      log.info(text);
+      return;
+    case 'warn':
+      log.warn(text);
+      return;
+    case 'error':
+      log.error(text);
+      return;
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
+  // Created before anything can fail and before any command can run. The
+  // channel has to be in the Output dropdown while the extension is healthy,
+  // because the moment a user goes looking for it is the moment something has
+  // already gone wrong — and a channel created on first error is absent at
+  // exactly that moment.
+  const output = vscode.window.createOutputChannel('graphite.md', { log: true });
+  context.subscriptions.push(output);
+
+  setLogger({
+    info: (message) => {
+      output.info(message);
+    },
+    debug: (message) => {
+      output.debug(message);
+    },
+    warn: (message, cause) => {
+      output.warn(describeCause(message, cause));
+    },
+    error: (message, cause) => {
+      output.error(describeCause(message, cause));
+    },
+  });
+
+  activatedAt = performance.now();
+  log.info(`graphite.md ${packageVersion(context)} · VS Code ${vscode.version} · ${process.platform}`);
+
   const openPreview = (column: vscode.ViewColumn) => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'markdown') {
@@ -37,6 +127,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       currentPanel.onDidDispose(() => {
         currentPanel = undefined;
+        log.info('preview closed');
       });
 
       // `message` arrives as `any` — onDidReceiveMessage is typed that way, and
@@ -62,13 +153,17 @@ export function activate(context: vscode.ExtensionContext) {
             // Losing those to an unhandled rejection leaves a click on a broken
             // link doing nothing at all, with nothing in the log.
             openLink(message.href, doc).catch((err: unknown) => {
-              console.error('graphite.md: failed to open link', err);
+              log.error(`failed to open link ${oneLine(message.href)}`, err);
             });
+            return;
+          case 'log':
+            logFromWebview(message.level, message.message);
             return;
         }
       });
 
       maybeShowWidthTip(context);
+      log.info(`preview opened · tracking ${oneLine(path.basename(currentDoc.fileName))}`);
     }
 
     renderIntoPanel(context);
@@ -80,6 +175,14 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('graphiteMd.openToSide', () => {
       openPreview(vscode.ViewColumn.Beside);
+    }),
+
+    // The way in for a user who has not discovered the Output dropdown, or who
+    // has it scrolled to some other channel. Deliberately outside the two
+    // `editorLangId == markdown` restrictions above: whatever has gone wrong may
+    // be that no Markdown file is open at all.
+    vscode.commands.registerCommand('graphiteMd.showOutput', () => {
+      output.show();
     }),
 
     // live-update as the user types
@@ -184,6 +287,7 @@ function imageSourceResolver(
 
     switch (plan.kind) {
       case 'refuse':
+        noteRefusedImage(doc, src, plan.reason);
         return undefined;
       case 'uri':
         try {
@@ -203,6 +307,32 @@ function imageSourceResolver(
       }
     }
   };
+}
+
+/**
+ * Says once, per document, that an image was left to the page's CSP.
+ *
+ * Only the remote case gets a word, and only while remote images are off. That
+ * is the one refusal a reader can act on, and its symptom — a broken image with
+ * nothing anywhere accounting for it — is half of what sends somebody looking
+ * for a log in the first place. A `data:` image, a bare `#fragment`, a remote
+ * image the user has already allowed: all silent, because a warning printed
+ * against a picture that is about to load correctly teaches a reader to ignore
+ * warnings.
+ *
+ * The source is one-lined before it goes in, because it is text out of the
+ * document and a log entry a reader cannot trust is worse than no entry. Host
+ * errors go in whole, stacks included — those are generated here, and a stack
+ * that has been flattened to one line has lost the only thing it was for.
+ */
+function noteRefusedImage(doc: vscode.TextDocument, src: string, reason: 'remote' | 'other'): void {
+  if (reason !== 'remote' || getRemoteImages()) return;
+  const key = `${doc.uri.toString()}\u0000${src}`;
+  if (refusedImages.has(key)) return;
+  refusedImages.add(key);
+  log.warn(
+    `not loading ${oneLine(src)} — remote images are off. Set "graphiteMd.remoteImages" to load images from the network.`
+  );
 }
 
 const WIDTH_TIP_DISMISSED_KEY = 'graphiteMd.hideWidthTip';
@@ -310,30 +440,46 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     localResourceRoots: resourceRoots(context, currentDoc),
   };
 
+  const docKey = currentDoc.uri.toString();
+  const firstRenderForDoc = docKey !== announcedDoc;
+  // Cleared before the render rather than after: the resolver runs inside
+  // renderMarkdown, so the set has to be empty by the time it is called or the
+  // first render of a new document would stay quiet about its own images.
+  if (firstRenderForDoc) refusedImages.clear();
+
   // `getText()` is inside the span rather than above it: it copies the whole
   // document out of VS Code's buffer and is part of what one keystroke costs
   // the host, so leaving it outside would understate the number this is here to
   // measure.
   const doneRender = span('host: renderMarkdown');
+  // Both timings are taken, and they are not the same measurement. This one is
+  // always on, because the render line in the Output Channel is a product
+  // feature; `span` above compiles out of releases, because the profiler is
+  // not. Measuring one with the other's clock would tie a shipped feature to a
+  // dev-only build.
+  const startedAt = performance.now();
   const source = currentDoc.getText();
+  const textDone = performance.now();
   let result;
   try {
     result = renderMarkdown(source, {
       resolveImage: imageSourceResolver(webview, currentDoc),
     });
   } catch (err) {
-    console.error('graphite.md: failed to render document', err);
+    log.error('failed to render document', err);
     webview.html = `<body style="font-family:sans-serif;padding:20px;color:#c00;">
-      graphite.md failed to render this document. Check the "Log (Extension Host)" output panel for details.
+      graphite.md failed to render this document. The "graphite.md" output channel has the details.
     </body>`;
     return;
   }
   doneRender();
+  const markdownDone = performance.now();
+  announcedDoc = docKey;
   const { html, headings, tables, diagrams } = result;
 
   currentPanel.title = path.basename(currentDoc.fileName);
   const doneHtml = span('host: buildWebviewHtml');
-  webview.html = buildWebviewHtml({
+  const pageHtml = buildWebviewHtml({
     mediaDir: path.join(context.extensionPath, 'media'),
     // Returns a string, not a Uri. asWebviewUri hands back a Uri, and a Uri
     // interpolated into a template happens to stringify correctly — but
@@ -351,6 +497,18 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     diagrams,
   });
   doneHtml();
+  const htmlDone = performance.now();
+
+  // The assignment is its own span rather than the tail of the one above it.
+  // It hands the page to a different process, and on a panel's first render it
+  // waits on a webview that does not exist yet — so folding it into
+  // `buildWebviewHtml` reported a 0.4 ms string builder as the slowest stage of
+  // the pipeline. A stage that is mislabelled is worse than one that is
+  // missing: it sends the reader to optimise the wrong function.
+  const doneAssign = span('host: setWebviewHtml');
+  webview.html = pageHtml;
+  doneAssign();
+  const assignDone = performance.now();
 
   // The host half of the profile. It is printed here rather than in the webview
   // because the two run in different processes: this line lands in the
@@ -359,6 +517,37 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
   report(
     `host render · ${path.basename(currentDoc.fileName)} · ${source.length} chars, ${source.split('\n').length} lines`
   );
+
+  // Every render, at info. The first cut logged a document's first render at
+  // info and the rest at debug to keep typing from filling the channel, which
+  // rebuilt the exact failure this channel exists to remove: after the opening
+  // line the log went quiet, and silence is indistinguishable from a preview
+  // that has stopped responding. Somebody who opens the channel because the
+  // preview is stuck needs the *current* state, not the state at load — so the
+  // line a reader needs is the one this increments, and one line per render is
+  // what that costs. PR 5's debounce is what turns it into one per pause.
+  const elapsed = assignDone - startedAt;
+  const summary =
+    `${oneLine(path.basename(currentDoc.fileName))} · ${source.length} bytes · ` +
+    `${headings.length} headings, ${tables.length} tables, ${diagrams.length} diagrams · ${elapsed.toFixed(0)} ms`;
+  log.info(`rendered ${summary}`);
+  // The split, for when the total is the thing being questioned — which it is
+  // as soon as the total looks wrong. It follows the render line's own rule and
+  // not the render line's level: a document's first render is the one that pays
+  // every cold cost there is, so that is where the breakdown has to be visible
+  // without anyone raising a level first. Later renders keep it at debug,
+  // because the steady state is the thing being typed through.
+  //
+  // `pre` is the stretch before this function was entered — the host loading
+  // the bundle, the panel being created. Without it those costs are credited to
+  // whichever stage runs first, which is how a four-second freeze came to be
+  // reported as a render.
+  const stages =
+    `  stages · pre ${(startedAt - activatedAt).toFixed(0)} · text ${(textDone - startedAt).toFixed(0)}` +
+    ` · markdown ${(markdownDone - textDone).toFixed(0)} · html ${(htmlDone - markdownDone).toFixed(0)}` +
+    ` · webview ${(assignDone - htmlDone).toFixed(0)} ms`;
+  if (firstRenderForDoc) log.info(stages);
+  else log.debug(stages);
 }
 
 export function deactivate() {}
