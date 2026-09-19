@@ -110,10 +110,17 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 .content-pane pre{ background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 14px 0; }
 .content-pane pre code{ background: none; padding: 0; color: var(--ink); font-size: 13px; line-height: 1.6; }
 
-table.md-table{ border-collapse: collapse; width: 100%; margin: 16px 0; font-family: var(--sans); font-size: 13.5px; }
-table.md-table th, table.md-table td{ border: 1px solid var(--border-strong); padding: 8px 12px; text-align: left; vertical-align: middle; }
-table.md-table th{ background: var(--bg-sidebar); font-weight: 600; color: var(--ink); }
-table.md-table td{ color: var(--ink-soft); }
+/* Every table in the pane, not only the ones the Markdown syntax produced.
+   markdown-it tags its own with .md-table, which left a <table> written in raw
+   HTML with no borders at all — a grid of bare text under a heading that says
+   "Totals", which reads as a rendering failure rather than a table. The class
+   is still emitted and still what the Tables outline keys off; it is no longer
+   what the styling keys off, so a table cannot be unstyled whatever produced
+   it. */
+.content-pane table{ border-collapse: collapse; width: 100%; margin: 16px 0; font-family: var(--sans); font-size: 13.5px; }
+.content-pane th, .content-pane td{ border: 1px solid var(--border-strong); padding: 8px 12px; text-align: left; vertical-align: middle; }
+.content-pane th{ background: var(--bg-sidebar); font-weight: 600; color: var(--ink); }
+.content-pane td{ color: var(--ink-soft); }
 
 /* math — rendered server-side by KaTeX (see src/markdown.ts), styled here.
    .katex-display is KaTeX's own class for block ($$...$$) math; plain .katex
@@ -250,6 +257,40 @@ table.md-table td{ color: var(--ink-soft); }
 .content-pane sup, .content-pane sub{ font-size: 0.72em; line-height: 1; }
 .content-pane ins{ text-decoration: underline; text-underline-offset: 2px; color: var(--ink); }
 .content-pane mark{ background: var(--accent-tint); color: var(--ink); padding: 0 3px; border-radius: 3px; }
+
+/* ---------- raw HTML elements ----------
+   The tags below are ones an author writes by hand: no Markdown syntax
+   produces them, so before raw HTML rendered there was nothing to style and
+   nothing showed the gap. Unstyled is not the same as inheriting the theme
+   here — an <hr> would draw the browser's default inset grey against a dark
+   ground, which is a light band across the page that no token accounts for,
+   and a <kbd> would read as ordinary body text with nothing to say it is a
+   key. */
+.content-pane kbd{
+  font-family: var(--mono); font-size: 12px; color: var(--ink);
+  background: var(--bg-code); border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
+}
+.content-pane abbr[title]{ text-decoration: underline dotted var(--muted); text-underline-offset: 2px; cursor: help; }
+.content-pane hr{ border: 0; border-top: 1px solid var(--border-strong); margin: 26px 0; }
+.content-pane figure{ margin: 18px 0; }
+.content-pane figcaption{
+  margin-top: 6px; text-align: center;
+  font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--muted);
+}
+.content-pane details{
+  background: var(--bg-code); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px; margin: 14px 0;
+}
+.content-pane summary{ cursor: pointer; font-weight: 600; color: var(--ink); }
+.content-pane summary::marker{ color: var(--accent); }
+.content-pane details[open] summary{ margin-bottom: 8px; }
+.content-pane dl{ margin: 14px 0; }
+.content-pane dt{ font-weight: 600; color: var(--ink); margin-top: 10px; }
+.content-pane dd{ margin: 2px 0 0 18px; color: var(--ink-soft); }
+/* Sized like an image, because that is what it is standing in for: without
+   this a single <video> wider than the pane drags the whole page sideways. */
+.content-pane video, .content-pane audio{ max-width: 100%; margin: 14px 0; }
 
 /* ---------- footnotes (markdown-it-footnote, rendered server-side as a
    document footer — see the footnote_block routing in src/markdown.ts) ---------- */
