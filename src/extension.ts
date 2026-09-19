@@ -38,6 +38,23 @@ const refusedImages = new Set<string>();
 let activatedAt = 0;
 
 /**
+ * How long the preview waits after the last keystroke before rendering.
+ *
+ * Trailing only, so a burst of typing costs one render rather than one per
+ * character — which is what it used to cost, because the render *was* one per
+ * character and each one rebuilt the whole page.
+ *
+ * 200 ms is below the point where a delay reads as lag in something the reader
+ * is not looking at directly, and above the gap between two keystrokes at any
+ * speed anyone types at. It is a number to tune from a measurement rather than
+ * to defend: the profiler's own figures are in the Output Channel after any
+ * render.
+ */
+const RENDER_DEBOUNCE_MS = 200;
+
+let renderTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
  * The extension's own version, off the manifest VS Code has already loaded.
  *
  * Guarded rather than cast: `packageJSON` is typed `any`, and a version line
@@ -74,6 +91,33 @@ function logFromWebview(level: 'info' | 'warn' | 'error', message: string): void
       log.error(text);
       return;
   }
+}
+
+/**
+ * Renders once the typing stops.
+ *
+ * Every change restarts the timer, so a burst of typing ends in one render
+ * instead of one per character.
+ *
+ * A hidden panel is skipped rather than deferred. Nobody is looking at it, the
+ * work would be thrown away by the next keystroke anyway, and nothing is lost by
+ * dropping it: a render reads the document rather than a queue of edits, so the
+ * one that runs when the panel comes back carries every change that happened
+ * while it was away. `onDidChangeViewState` is where that one is triggered.
+ */
+function scheduleRender(context: vscode.ExtensionContext): void {
+  cancelScheduledRender();
+  renderTimer = setTimeout(() => {
+    renderTimer = undefined;
+    if (currentPanel?.visible !== true) return;
+    renderIntoPanel(context);
+  }, RENDER_DEBOUNCE_MS);
+}
+
+function cancelScheduledRender(): void {
+  if (renderTimer === undefined) return;
+  clearTimeout(renderTimer);
+  renderTimer = undefined;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -136,7 +180,15 @@ export function activate(context: vscode.ExtensionContext) {
 
       currentPanel.onDidDispose(() => {
         currentPanel = undefined;
+        cancelScheduledRender();
         log.info('preview closed');
+      });
+
+      // The other half of the debounce's skip above: a panel that was hidden
+      // while the document changed is showing content from before the edits, so
+      // it renders once on the way back — however many edits it missed.
+      currentPanel.onDidChangeViewState((e) => {
+        if (e.webviewPanel.visible) renderIntoPanel(context);
       });
 
       // `message` arrives as `any` — onDidReceiveMessage is typed that way, and
@@ -194,17 +246,20 @@ export function activate(context: vscode.ExtensionContext) {
       output.show();
     }),
 
-    // live-update as the user types
+    // live-update as the user types, once the typing stops
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (currentPanel && currentDoc && e.document.uri.toString() === currentDoc.uri.toString()) {
-        renderIntoPanel(context);
+        scheduleRender(context);
       }
     }),
 
-    // switch which document the preview tracks when focus moves to another markdown file
+    // switch which document the preview tracks when focus moves to another markdown file.
+    // Not debounced: focus moving is a deliberate act, not something that arrives
+    // in a burst, and it needs the immediate feedback the keystrokes do not.
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (currentPanel && editor && editor.document.languageId === 'markdown') {
         currentDoc = editor.document;
+        cancelScheduledRender();
         renderIntoPanel(context);
       }
     }),
