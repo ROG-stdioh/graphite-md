@@ -259,6 +259,71 @@ md.renderer.rules.image = (tokens, idx, options, env: RenderEnv, self) => {
   return self.renderToken(tokens, idx, options);
 };
 
+// ---- raw HTML: the same src treatment the Markdown syntax gets --------------
+// The rule above only ever sees a Markdown image. Raw HTML arrives by a
+// different door — markdown-it hands it through verbatim — and lands in the
+// webview with a relative `src`, which is the broken box the rule above exists
+// to prevent, arriving the other way.
+//
+// markdown-it splits raw HTML into two token types by where it sat in the
+// source: `html_block` when the markup started its own block, `html_inline` for
+// a tag inside a line of prose. Both default to returning `token.content`
+// untouched, and both are overridden here.
+//
+// A renderer rule rather than one pass over the finished page, because a pass
+// over the page cannot tell markup from a document *about* markup. A fenced or
+// indented code block holding `<img src="x.png">` is a `fence` or `code_block`
+// token whose `<` was escaped to `&lt;` before this file ever saw it, and
+// neither rule below is handed it — so a page that documents how to write an
+// image tag keeps showing it as text. An `html_inline` token is also one
+// complete tag, parsed by markdown-it with CommonMark's own attribute grammar,
+// which knows a `>` inside a quoted value does not end the tag.
+//
+// `src`, on the four elements that carry one. Two attributes are deliberately
+// left alone: `srcset`, which holds a list of candidates rather than a single
+// source, and `poster`, which is the frame a video draws before it plays.
+// Neither is a regression — nothing resolved them before this change either.
+//
+// The scan inside an `html_block` is textual, and knowingly so: the input is
+// HTML that markdown-it did not parse, and parsing it properly would mean
+// shipping an HTML parser to change one attribute. Where that shows is a `src`
+// whose own value contains a `>` — the tag ends early, the attribute no longer
+// matches, and the source is left exactly as written. Unresolved rather than
+// mis-resolved, which is the direction a failure here should fall.
+const SRC_TAG = /<(img|video|audio|source)\b[^>]*>/gi;
+const SRC_ATTR = /(\s)src\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+function resolveRawSrcs(html: string, env: RenderEnv): string {
+  const resolve = env.resolveImage;
+  // No resolver is a real state, not a gap: this is what the check scripts and
+  // the BDD suite render with, and what the host passes for a document whose
+  // folder it cannot name.
+  if (resolve === undefined) return html;
+
+  return html.replace(SRC_TAG, (tag) =>
+    tag.replace(
+      SRC_ATTR,
+      (attr: string, lead: string, doubleQuoted: string | undefined, singleQuoted: string | undefined) => {
+        // Exactly one alternative matched, so at most one of these is a string;
+        // `??` covers the type rather than a case, and an empty `src=""` is a
+        // string, so it is passed to the resolver rather than skipped.
+        const resolved = resolve(doubleQuoted ?? singleQuoted ?? '');
+        if (resolved === undefined) return attr;
+        // The quote style is the author's and is kept; only the value changes.
+        // A resolver returns a URL, so it cannot contain the quote delimiting it.
+        const quote = doubleQuoted === undefined ? "'" : '"';
+        return `${lead}src=${quote}${resolved}${quote}`;
+      }
+    )
+  );
+}
+
+md.renderer.rules.html_block = (tokens, idx, _options, env: RenderEnv) =>
+  resolveRawSrcs(at(tokens, idx, 'an html_block token').content, env);
+
+md.renderer.rules.html_inline = (tokens, idx, _options, env: RenderEnv) =>
+  resolveRawSrcs(at(tokens, idx, 'an html_inline token').content, env);
+
 // ---- checklists: "- [ ] foo" / "- [x] foo" -> a clickable checkbox --------
 // markdown-it has no built-in task list support, and existing plugins don't
 // give us the source line number we need for click-to-toggle edits, so this

@@ -278,6 +278,13 @@ inline script and an <code>onclick=</code> attribute are both refused. See the
 CSP in <code>src/webviewHtml.ts</code>.
 </details>
 
+A figure, and a rule:
+
+<figure>
+  <img src="../images/overview.png" alt="Relative to this file">
+  <figcaption>A relative image written in raw HTML resolves like a Markdown one.</figcaption>
+</figure>
+
 ---
 
 A table written by hand. It renders with the same borders and padding as a

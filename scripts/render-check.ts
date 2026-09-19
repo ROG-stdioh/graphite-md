@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   // the failure, and it is the one a reader sees.
   check('raw HTML renders as markup', /<kbd>Ctrl<\/kbd>/.test(html) && /<abbr title="Application Programming Interface">/.test(html));
   check('a raw HTML table renders as a table', /<table>[\s\S]*?<\/table>/.test(html));
-  check('raw HTML blocks render (details/dl)', /<details>/.test(html) && /<dl>/.test(html));
+  check('raw HTML blocks render (details/dl/figure)', /<details>/.test(html) && /<dl>/.test(html) && /<figcaption>/.test(html));
   check('comments pass through as real comments', /<!--[\s\S]*?-->/.test(html) && !html.includes('&lt;!--'));
 
   // A code block is where the escaping is still correct and still required: a
@@ -87,6 +87,31 @@ async function main(): Promise<void> {
   // the fenced and the indented form, because they take different paths through
   // markdown-it and only one of them was ever looked at.
   check('a fenced code block still escapes markup', /&lt;angle brackets&gt;/.test(html));
+
+  // The half the renderer owns: a `<img>` written as raw HTML is offered to the
+  // host's resolver exactly as a Markdown one is. Rendered here with a resolver
+  // rather than without, because without one there is nothing to observe — the
+  // source is passed through untouched either way.
+  const rawImg = renderMarkdown('<img src="raw.png" alt="raw">', {
+    resolveImage: (src) => `resolved:${src}`,
+  }).html;
+  check('a raw HTML image is resolved by the host', /<img src="resolved:raw\.png" alt="raw">/.test(rawImg));
+  check(
+    'a raw HTML image the host declines is left alone',
+    /<img src="https:\/\/example\.com\/x\.png">/.test(renderMarkdown('<img src="https://example.com/x.png">').html)
+  );
+  // Asserted as "not resolved" rather than as a literal string, because the
+  // fenced block is highlighted: highlight.js wraps the tag in spans of its
+  // own, so the exact bytes are the highlighter's business and not this
+  // check's. That the source is still visible as text and was never handed to
+  // the resolver is the property.
+  const fenced = renderMarkdown('```html\n<img src="fenced.png">\n```', {
+    resolveImage: (s) => `resolved:${s}`,
+  }).html;
+  check(
+    'a raw HTML image inside a code fence is not resolved',
+    fenced.includes('fenced.png') && !fenced.includes('resolved:fenced.png')
+  );
 
   // ---- structure ------------------------------------------------------------
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
