@@ -72,8 +72,23 @@ async function main(): Promise<void> {
   check('malformed latex does not throw', /katex/.test(html) && html.length > 1000);
   check('mermaid blocks (both diagrams)', /class="mermaid" id="diagram-1"/.test(html) && /class="mermaid" id="diagram-2"/.test(html));
 
+  // ---- raw HTML -------------------------------------------------------------
+  // The sample carries a whole section of it, and the point of these is the
+  // same as the point of the section: raw HTML arrives as markup rather than as
+  // the markup's own text. `&lt;` anywhere in a place the document wrote `<` is
+  // the failure, and it is the one a reader sees.
+  check('raw HTML renders as markup', /<kbd>Ctrl<\/kbd>/.test(html) && /<abbr title="Application Programming Interface">/.test(html));
+  check('a raw HTML table renders as a table', /<table>[\s\S]*?<\/table>/.test(html));
+  check('raw HTML blocks render (details/dl)', /<details>/.test(html) && /<dl>/.test(html));
+  check('comments pass through as real comments', /<!--[\s\S]*?-->/.test(html) && !html.includes('&lt;!--'));
+
+  // A code block is where the escaping is still correct and still required: a
+  // document about HTML must be able to show a tag without rendering one. Both
+  // the fenced and the indented form, because they take different paths through
+  // markdown-it and only one of them was ever looked at.
+  check('a fenced code block still escapes markup', /&lt;angle brackets&gt;/.test(html));
+
   // ---- structure ------------------------------------------------------------
-  check('HTML comments stripped', !html.includes('&lt;!--'));
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
   check('second H1 stays in the outline', r.headings.some((h) => h.label.startsWith('A Second Top-Level Heading')));
   check('quote-nested heading NOT in outline', !r.headings.some((h) => h.label.includes('Markdown Inside Quotes')));
@@ -107,7 +122,13 @@ async function main(): Promise<void> {
   check('bare email still linkifies', /href="mailto:me@example\.com"/.test(render('Ping me@example.com please.')));
   check('explicit relative markdown link survives', /href="setup\.md"/.test(render('Read [setup](setup.md).')));
 
-  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span']) {
+  // `script`, `form` and `iframe` are in this list on purpose. They are the
+  // tags a document is not supposed to be able to *do* anything with, and a
+  // mismatch in one of them is what renested the whole right-hand pane before —
+  // so the check that they pair is the cheap half of the safety story, taken
+  // here rather than in the BDD suite because it is a property of the sample
+  // document rather than of a scenario.
+  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe', 'video', 'audio']) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
     check(`tag balance <${tag}> (${open} open / ${close} close)`, open === close);

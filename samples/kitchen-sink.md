@@ -9,9 +9,13 @@ node scripts/render-check.js
 node scripts/graph-check.js
 ```
 
-<!-- HTML comments are stripped before parsing, so this one never reaches the
-     preview. It doubles as a regression check: if comments ever leak through,
-     the check scripts will see the escaped text and fail. -->
+<!-- Raw HTML renders, so this comment reaches the preview as a real comment and
+     the browser hides it — the same thing that happens to it on GitHub. It
+     doubles as a regression check: if comments are ever escaped back into
+     visible text, the check scripts will see the angle brackets and fail. Its
+     line breaks are load-bearing too. The renderer reports the source line of
+     every checkbox it emits, and those numbers are positions in this file, so
+     anything that shortens the source shifts them onto the wrong lines. -->
 
 ## H2: Section Heading
 
@@ -246,6 +250,67 @@ sequenceDiagram
     API Gateway-->>Client: HTTP 200 (HTML String)
 ```
 
+## Raw HTML
+
+Everything in this section is HTML rather than Markdown. It renders exactly as
+it is written, the way it does in VS Code's own preview and on GitHub, and the
+elements below are styled by `media/preview.css` so none of them falls back to
+a browser default drawn for a light page.
+
+Inline: <mark>highlighted</mark>, <kbd>Ctrl</kbd>+<kbd>K</kbd>, <abbr title="Application Programming Interface">API</abbr>, <ins>inserted</ins>, H<sub>2</sub>O and mc<sup>2</sup>.
+
+A definition list:
+
+<dl>
+  <dt>Rendering</dt>
+  <dd>Turning the document's source into the HTML the preview shows.</dd>
+  <dt>Outline</dt>
+  <dd>The "On this page" pane — Content, Tables and Diagrams.</dd>
+</dl>
+
+A collapsed disclosure:
+
+<details>
+<summary>What happens to a &lt;script&gt; tag?</summary>
+It reaches the page as a real element and never runs. The page's Content
+Security Policy allows scripts only from a nonce it generated itself, so an
+inline script and an <code>onclick=</code> attribute are both refused. See the
+CSP in <code>src/webviewHtml.ts</code>.
+</details>
+
+---
+
+A table written by hand. It renders with the same borders and padding as a
+Markdown table. It does not yet appear in the Tables tab — the outline is fed by
+ids the Markdown table renderer assigns, and a raw table never receives one.
+
+<table>
+  <thead>
+    <tr><th>Stage</th><th>Cost</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Markdown parse</td><td>5.5 ms</td></tr>
+    <tr><td>Webview reload</td><td>99 ms</td></tr>
+  </tbody>
+</table>
+
+### Raw HTML that must not do anything
+
+These are here to be looked at, not used. Every one of them is inert in the
+preview: the first three because the CSP refuses them, the last because the
+panel is created with `enableForms: false`.
+
+<p onclick="alert('inline handler')">A paragraph with an onclick handler.</p>
+
+<iframe src="https://example.com" width="200" height="60"></iframe>
+
+<script>document.body.textContent = 'a script that must never run';</script>
+
+<form action="https://example.com/submit">
+  <input type="text" value="a form that must never submit">
+  <button type="submit">Submit</button>
+</form>
+
 ## Edge Cases
 
 Deliberately awkward input that has broken the renderer before:
@@ -253,7 +318,7 @@ Deliberately awkward input that has broken the renderer before:
 - A paragraph with a hard line break at the end of this line  
   and the text continuing after it.
 - A very long unbroken token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-- Characters that must be escaped and never interpreted as HTML: <div> & </div> and <script>alert(1)</script>
+- Characters that are HTML and are treated as such: <div> & </div> and <script>alert(1)</script> — the script element reaches the page and the page's policy refuses to run it. See "Raw HTML" above.
 - Backslash escapes: \*not italic\*, \`not code\`, \_not italic\_
 - A table cell containing a pipe: | is escaped as \| and must not split the row.
 - A heading with trailing hashes that should be stripped: ### Trailing hashes ###

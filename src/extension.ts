@@ -120,6 +120,15 @@ export function activate(context: vscode.ExtensionContext) {
         column,
         {
           enableScripts: true,
+          // Defaults to true whenever scripts are enabled, which is why this is
+          // written out rather than left off. With raw HTML rendering, a
+          // `<form>` in a document is markup an author can now write, and a
+          // form that can be filled and submitted is the preview doing
+          // something on the document's behalf that no preview should. VS Code
+          // sets this explicitly for the same reason. The page's CSP carries
+          // `form-action 'none'` as well; this is the mechanism that stops the
+          // form being interactive at all.
+          enableForms: false,
           localResourceRoots: resourceRoots(context, currentDoc),
           retainContextWhenHidden: true,
         }

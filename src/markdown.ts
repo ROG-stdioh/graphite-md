@@ -52,7 +52,21 @@ export interface RenderEnv {
 // One markdown-it instance is enough; it holds no per-render state itself —
 // all per-render bookkeeping (counters, section stack) lives in renderMarkdown().
 const md: MarkdownIt = new MarkdownIt({
-  html: false,
+  // Raw HTML renders. That is what every other Markdown renderer does — GitHub,
+  // every static site generator, and VS Code's own preview, which is built as
+  // `new MarkdownIt({ html: true })` — so `<mark>`, `<kbd>`, `<details>` and a
+  // hand-written `<table>` all work everywhere except here. A document that
+  // looked right in every other tool looked wrong only in this one, with
+  // nothing in the source to hint at why.
+  //
+  // This flag is not the safety boundary, and treating it as one was the
+  // mistake. `html` decides what gets *rendered*, not what gets *run*: the
+  // page's policy is `script-src 'nonce-…'` with no `'unsafe-inline'`, so an
+  // inline `<script>` or an `onclick=` attribute cannot execute whether this is
+  // true or false, and `default-src 'none'` blocks `<iframe>` either way. See
+  // the CSP in src/webviewHtml.ts, which is where that decision actually lives
+  // and where the scenarios that hold it live too.
+  html: true,
   linkify: true,
   typographer: true,
   // Syntax highlighting for fenced code blocks. Returning '' tells
@@ -348,25 +362,26 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   const tables: TocNode[] = [];
   const diagrams: TocNode[] = [];
 
-  // We render with html:false (raw HTML is disabled — a markdown preview
-  // shouldn't execute arbitrary HTML/script from the file it's rendering).
-  // The one thing people still expect to work from plain HTML is comments,
-  // since "<!-- note -->" is the universal "hide this" convention in both
-  // Markdown and HTML. With html:false those would otherwise leak into the
-  // page as visible escaped text (`&lt;!-- note --&gt;`), so we strip them
-  // before parsing rather than turning raw HTML rendering on just for this.
+  // The source goes to markdown-it exactly as the file holds it.
   //
-  // The replacement keeps the comment's line breaks. Every line number the
-  // renderer hands back — the `data-line` a checklist box carries, which is
-  // what the host edits the file with — is a position in the source it parsed,
-  // so a comment that vanished along with its newlines would shift every line
-  // below it and point those edits at the wrong text. Keeping the breaks means
-  // the parsed source and the file on disk number their lines identically.
-  const source = rawSource.replace(/<!--[\s\S]*?-->/g, (comment: string) =>
-    '\n'.repeat(comment.split('\n').length - 1)
-  );
-
-  const tokens = md.parse(source, env);
+  // It used to be stripped of `<!-- … -->` first. With html:false a comment
+  // rendered as visible `&lt;!-- … --&gt;` text, and a comment is the universal
+  // "hide this" convention in both Markdown and HTML, so it was worth a
+  // pre-pass to keep them off the page. That pre-pass is gone with the option
+  // that needed it: with html:true a comment arrives as a real comment, which
+  // the browser hides for the same reason and with the line breaks the author
+  // actually wrote.
+  //
+  // Those line breaks are the half that has to keep working, and passing the
+  // source through untouched is the strongest form of that guarantee. Every
+  // line number the renderer hands back — the `data-line` a checklist box
+  // carries, which is what the host edits the file with — is a position in the
+  // source it parsed, so anything that shortened the source would shift every
+  // line below it and point those edits at the wrong text. That is not
+  // hypothetical: it is what the pre-pass did wrong before it was fixed to keep
+  // the newlines, and it is what `every checkbox can be toggled in the source
+  // file` in features/safety.feature exists to catch.
+  const tokens = md.parse(rawSource, env);
   applyTaskLists(tokens);
   const slugs = new Map<string, number>();
 
