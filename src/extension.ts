@@ -27,6 +27,17 @@ let announcedDoc: string | undefined;
 const refusedImages = new Set<string>();
 
 /**
+ * When `activate()` ran, on the same clock the render line uses.
+ *
+ * The stages split below starts counting at the render, which silently credits
+ * everything before it — the extension host loading a 1.7 MB bundle it did not
+ * have in memory a moment ago, the panel being created — to whatever stage
+ * happens to come first. One number for that stretch names it instead of hiding
+ * it, and it is the number that made a four-second freeze look like a render.
+ */
+let activatedAt = 0;
+
+/**
  * The extension's own version, off the manifest VS Code has already loaded.
  *
  * Guarded rather than cast: `packageJSON` is typed `any`, and a version line
@@ -89,6 +100,7 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
+  activatedAt = performance.now();
   log.info(`graphite.md ${packageVersion(context)} · VS Code ${vscode.version} · ${process.platform}`);
 
   const openPreview = (column: vscode.ViewColumn) => {
@@ -520,12 +532,22 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     `${headings.length} headings, ${tables.length} tables, ${diagrams.length} diagrams · ${elapsed.toFixed(0)} ms`;
   log.info(`rendered ${summary}`);
   // The split, for when the total is the thing being questioned — which it is
-  // as soon as the total looks wrong. Four numbers about one number belongs at
-  // debug, where somebody already looking for detail will find it.
-  log.debug(
-    `  stages · text ${(textDone - startedAt).toFixed(0)} · markdown ${(markdownDone - textDone).toFixed(0)}` +
-      ` · html ${(htmlDone - markdownDone).toFixed(0)} · webview ${(assignDone - htmlDone).toFixed(0)} ms`
-  );
+  // as soon as the total looks wrong. It follows the render line's own rule and
+  // not the render line's level: a document's first render is the one that pays
+  // every cold cost there is, so that is where the breakdown has to be visible
+  // without anyone raising a level first. Later renders keep it at debug,
+  // because the steady state is the thing being typed through.
+  //
+  // `pre` is the stretch before this function was entered — the host loading
+  // the bundle, the panel being created. Without it those costs are credited to
+  // whichever stage runs first, which is how a four-second freeze came to be
+  // reported as a render.
+  const stages =
+    `  stages · pre ${(startedAt - activatedAt).toFixed(0)} · text ${(textDone - startedAt).toFixed(0)}` +
+    ` · markdown ${(markdownDone - textDone).toFixed(0)} · html ${(htmlDone - markdownDone).toFixed(0)}` +
+    ` · webview ${(assignDone - htmlDone).toFixed(0)} ms`;
+  if (firstRenderForDoc) log.info(stages);
+  else log.debug(stages);
 }
 
 export function deactivate() {}
