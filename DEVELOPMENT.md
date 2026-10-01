@@ -125,6 +125,44 @@ field at all — `collectFiles` only consults it when the `.vscodeignore` read
 fails with `ENOENT` — so a `files` allowlist here would be silently dead, with
 `vsce ls` still printing a clean success.
 
+## Profiling
+
+Two profilers, because the cost is split across two processes and only one of
+them can be measured from Node:
+
+```bash
+npm run profile          # the host pipeline, measured from Node
+npm run profile:webview  # the page the webview loads, measured in a headless Chromium
+```
+
+`npm run profile` measures what the extension host does per render
+(`renderMarkdown`, `buildWebviewHtml`) and does the arithmetic on the media the
+webview is handed. `npm run profile:webview` is the other half, and the reason
+it drives a real browser rather than reasoning about one: the question the perf
+work turns on — whether a reload re-pays mermaid's parse — is a question about
+Chromium, and cannot be answered by reading the source or from Node. It builds
+the real page, serves it over HTTP so the CSP's scheme sources behave as they do
+in a webview, and navigates three times, because a second load can still be
+warming and a number that is still falling looks like a number a user lives
+with.
+
+The instrumentation lives in `src/shared/perf.ts`, gated on `__PROFILE__` —
+esbuild substitutes the identifier textually, so an instrumented bundle carries
+the marks and a release bundle carries `if (false)` with the minifier dropping
+the bodies. `npm run build:profile` and `npm run watch:profile` turn it on, and
+the **Run graphite.md (profiling)** launch configuration exists because F5's
+default preLaunchTask would otherwise rebuild with the flag off and quietly
+overwrite an instrumented tree. `npm run check:package` greps the packaged
+`media/preview.js` for the marker, because "the minifier should have removed it"
+is a belief and a grep is a fact.
+
+**It is a developer's tool, and it is deliberately not wired to the Output
+Channel.** The profiler writes marks a developer reads in the webview's own
+DevTools; the `graphite.md` channel is what a *user* reads when the preview
+misbehaves. Sharing a code path would mean shipping profiler plumbing to people
+who never asked for it — which is the exact category of thing the profiler was
+built to find.
+
 ## The tooling is TypeScript too
 
 Everything outside `src/` — the build script, the four check scripts, the BDD
@@ -177,9 +215,14 @@ different from a web page loading its own stylesheet.
 ## Architecture
 
 - **`src/extension.ts`** — activation, command registration, webview
-  lifecycle, and the settings.json <-> webview two-way sync (content width,
-  checklist edits).
+  lifecycle, the settings.json <-> webview two-way sync (content width,
+  checklist edits), and render scheduling: renders are debounced, and a panel
+  that is not visible skips its render and catches up when it becomes visible
+  again.
 - **`src/markdown.ts`** — markdown-it configured to:
+  - pass raw HTML through as markup (`html: true`), matching VS Code's own
+    preview. The boundary is the page's Content-Security-Policy, not this
+    option — see `src/webviewHtml.ts` for why the decision lives there
   - group `##`/`###`/etc. into nested, collapsible
     `.section` / `.section-head` / `.section-body` divs
   - render math server-side via KaTeX (`markdown-it-texmath`) — more
@@ -200,6 +243,32 @@ different from a web page loading its own stylesheet.
   - collect headings/tables/diagrams into `TocNode[]` arrays, handed to the
     webview as `window.__PREVIEW_DATA__` so the client never needs to
     re-parse the DOM to build the outline
+- **`src/webviewHtml.ts`** — the page the webview loads, as a string. Pure in
+  the same sense `markdown.ts` is: no `vscode` import, no filesystem access of
+  its own, so `scripts/media-version-check.ts` can build the real page and
+  assert on it without an editor. Two things the page cannot know — where the
+  media directory is, and how a path becomes a loadable URL — arrive as
+  arguments. It is also where the Mermaid `<script>` is gated on the document
+  actually having a diagram, which is worth reading before changing: the tag's
+  *absence* is ambiguous between "no diagrams" and "diagrams, but the file
+  failed to load", and the page is told which is which rather than guessing.
+- **`src/mediaVersion.ts`** — the content-derived version in each media URL,
+  which is what stops an upgrading user running the previous release's cached
+  bundle. Memoised per file on size and timestamp.
+- **`src/sourceRef.ts`** — turning an image `src` written in a document into a
+  URL the webview may load, or a refusal with a reason. Separate from
+  `extension.ts` for the same reason `settings.ts` is: it is a pure decision
+  over its inputs, and the inputs it has to survive are the awkward ones.
+- **`src/taskMarker.ts`** — finding the `- [ ]` on a given source line, so a
+  checkbox click rewrites the box rather than whatever is near it. Shared by
+  the renderer, which tags a box with its line, and the host, which writes the
+  edit — so the two cannot disagree about which line a box came from.
+- **`src/logger.ts`** — where the extension's own diagnostics go. The sink is
+  settable rather than constructed here, because the renderer must be loadable
+  without an editor: `activate()` points it at the `graphite.md` Output
+  Channel, and outside VS Code it stays on `console`. Nothing in the file
+  imports anything, which is what lets the same code run in the host, in the
+  check scripts and in the BDD suite.
 - **`src/settings.ts`** — reading and coercing the `graphiteMd.*`
   configuration. Separate from `extension.ts` because that module cannot be
   required outside a running VS Code, so anything left inside it is untestable
@@ -260,6 +329,20 @@ column. Editable in `settings.json`; the preview picks the change up live.
   unnoticed until the next one. Nothing in the build does that: two builds
   producing identical bytes want the same version anyway, and different bytes
   differing only in length is not a thing an edit does.
+- **The first render in a window can block the extension host for seconds**, and
+  the cause is measured rather than suspected. The `stages` line in the Output
+  Channel splits a render into `pre` / `text` / `markdown` / `html` / `webview`;
+  on a reported ~4.5 s first render, 4508 ms of the total was `html` — the
+  `buildWebviewHtml` span, whose only I/O is `contentVersion` reading and
+  hashing the media files, 3.18 MB of that being Mermaid. The same calls measure
+  2.2 ms of actual CPU on this machine, so the time is I/O wait on a cold file
+  cache rather than computation, and it is paid once per extension host rather
+  than once per render. The Mermaid gate in `webviewHtml.ts` already removes it
+  for a document with no diagram, because the file is then never named and so
+  never read at all; what remains is the first render of a document that has
+  one. A manifest of media versions written at build time would remove the read
+  entirely — the render path would look a version up instead of deriving it.
+  ([#25](https://github.com/ROG-stdioh/graphite-md/issues/25))
 - **No integration tests.** Everything above runs outside VS Code: the smoke
   checks drive the built webview against a hand-rolled DOM double, and the BDD
   suite drives the markdown pipeline directly. Nothing exercises activation,

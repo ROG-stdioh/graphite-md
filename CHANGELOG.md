@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-01
+
+Raw HTML, at last — the one place the preview disagreed with VS Code's own and
+with every other Markdown renderer. Alongside it, the preview stopped rebuilding
+itself from scratch on every keystroke, and there is now a log to read when it
+misbehaves. Nothing that rendered correctly before renders differently now.
+
+### Added
+
+- **Raw HTML renders.** `<mark>`, `<kbd>`, `<details>`, a table written by hand,
+  an `<img>` pointing at a file beside the document — markup you write now
+  arrives as markup instead of as visible angle brackets. The boundary is the
+  preview's Content-Security-Policy rather than the renderer: `<script>`, an
+  `onclick=` attribute and an `<iframe>` are all still refused, and so is a
+  `<form>` posting anywhere. This is the same arrangement VS Code's own Markdown
+  preview uses. ([#20](https://github.com/ROG-stdioh/graphite-md/issues/20))
+- **A `graphite.md` output channel**, opened with **graphite.md: Show Output**.
+  It logs the extension and VS Code version at startup, every preview opened and
+  closed, every render with its timing and what it found, and every image the
+  preview declined to load with the reason it declined. When a preview is stuck,
+  this is the thing to read — it is the extension narrating its own state rather
+  than waiting for you to guess.
+  ([#24](https://github.com/ROG-stdioh/graphite-md/issues/24))
+- **Styling for elements that had none** — `kbd`, `details` and `summary`,
+  `abbr`, `dl`/`dt`/`dd`, `figure`/`figcaption` and `hr`. They rendered as
+  unstyled browser defaults before, which is what made raw HTML look broken even
+  once it was arriving.
+
+### Changed
+
+- **A document with no diagram no longer loads a diagram renderer.** Mermaid is
+  3.18 MB, and the preview parsed and executed the whole of it on every load
+  whether or not the document contained a diagram — measured at 164 ms of a
+  169 ms reload, which made it the cost of the preview by an order of magnitude.
+  It is now loaded only when there is a diagram to draw: a document without one
+  goes from nine resources to three, and from ~160 ms to under 25 ms.
+  ([#22](https://github.com/ROG-stdioh/graphite-md/issues/22))
+- **Typing no longer rebuilds the preview once per character.** The rebuild is
+  debounced, so a burst of typing costs one render instead of one per keystroke,
+  and a preview panel that isn't visible is skipped entirely and catches up when
+  you come back to it.
+  ([#22](https://github.com/ROG-stdioh/graphite-md/issues/22))
+- **A table written as raw HTML joins the Tables view**, in document order
+  alongside the Markdown ones. A table you gave an `id` keeps it, so a link
+  written to `#totals` still lands where it always did.
+  ([#21](https://github.com/ROG-stdioh/graphite-md/issues/21))
+
+### Fixed
+
+- **Folding a section now survives a reload.** A folded section was a class on
+  the element and nothing else, so anything that reloaded the page — closing and
+  reopening the preview, or an update — put every section back open. Which
+  sections you folded is now remembered, the same way your scroll position
+  already was. ([#22](https://github.com/ROG-stdioh/graphite-md/issues/22))
+- **A blank outline now says so.** When every row in the outline failed to lay
+  out, it cleared itself and reported nothing anywhere, which looks exactly like
+  a document with no headings in it. It now warns to the output channel and
+  names how many rows went missing.
+  ([#22](https://github.com/ROG-stdioh/graphite-md/issues/22))
+
 ## [0.1.0] - 2026-09-17
 
 Images, at last — and a preview that cannot go stale. Alongside them, two link
