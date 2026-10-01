@@ -54,6 +54,14 @@ footnotes (`[^1]`) all render natively.
 
 ![A document exercising inline syntax: subscript, superscript, underline, highlight and strikethrough all rendered in place, with a footnote marker in the body and its definition listed at the foot of the page.](images/inline-syntax.png)
 
+**Raw HTML renders.** `<mark>`, `<kbd>`, `<details>`, a hand-written `<table>`,
+an `<img>` pointing at a file beside the document — markup you write arrives as
+markup, the same way VS Code's own Markdown preview treats it, rather than as
+visible angle brackets. What does *not* run is script: `<script>`, an `onclick=`
+attribute and an `<iframe>` are all refused by the preview's
+Content-Security-Policy, and a `<form>` can't post anywhere. The boundary is the
+policy, not the renderer.
+
 **Links that go where you meant them to.** A relative link opens the file it
 points at, resolved against the document you're previewing — the same way VS
 Code's own Markdown preview resolves it. Absolute URLs open in your browser.
@@ -76,6 +84,12 @@ highlight.js, tinted to match the graphite theme.
 2. Run **graphite.md: Open Preview to the Side** from the Command Palette,
    or press `Ctrl+K V` (`Cmd+K V` on macOS).
 3. The preview updates live as you type.
+
+If the preview ever misbehaves, the **graphite.md** output channel is where to
+look — run **graphite.md: Show Output** from the Command Palette, or pick it
+from the dropdown in the Output panel. It records which version you're on, every
+preview opened and closed, every render with how long it took and what it found,
+and every image the preview declined to load with the reason it declined.
 
 ## Settings
 
@@ -104,6 +118,20 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
   isn't in the folder you opened. Open the parent that holds both `docs/` and
   `images/`, and the picture loads. VS Code's built-in Markdown preview draws
   the line in the same place.
+- **Script in raw HTML never runs.** `<script>`, `onclick=`, `<iframe>` and a
+  posting `<form>` are all refused, whether they were written in the document or
+  injected into it. That is deliberate — a preview is a reading surface, not a
+  place a document gets to execute — and it matches VS Code's own Markdown
+  preview. Markup still renders; only the executing parts don't.
+- **The first preview opened in a window can pause for a few seconds** if the
+  document contains a diagram. The host reads and hashes the 3.18 MB Mermaid
+  bundle to derive the version in its URL, and on a cold file cache that read is
+  slow. It is paid once per window, not once per render, and a document without
+  a diagram never loads Mermaid at all.
+  ([#25](https://github.com/ROG-stdioh/graphite-md/issues/25))
+- **An image inside a heading isn't resolved.** `## The ![logo](logo.png)
+  release` shows a broken box, though the same image in a paragraph below
+  renders fine. ([#28](https://github.com/ROG-stdioh/graphite-md/issues/28))
 - Merged-cell tables (`rowspan` / `colspan`) aren't supported yet — a syntax
   for them is still being designed.
   ([#8](https://github.com/ROG-stdioh/graphite-md/issues/8))

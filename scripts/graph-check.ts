@@ -201,12 +201,34 @@ interface Harness {
 // builds fresh stubs, runs preview.js, lays out rows, and returns the
 // built rows + svg after the init rAF has flushed. `spyTarget` is the
 // .section-head the scroll-spy reports, i.e. which row ends up active.
-function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}): Harness {
+function run(
+  spyTarget: string,
+  opts: {
+    state?: Record<string, unknown>;
+    mermaid?: unknown;
+    /** Elements the document should already hold, by id — a section body the
+     *  reader had folded, or one a click is about to fold. */
+    elements?: Record<string, StubEl>;
+    /** The `.section-head` carrying each `data-target`, so the selector the
+     *  webview uses to find a section's chevron has something to find. */
+    heads?: Record<string, StubEl>;
+    /** Report no layout box for every row, which is what a stale reference to a
+     *  previous build's rows looks like from inside drawGraph. */
+    detachRows?: boolean;
+  } = {}
+): Harness {
   // Populated from STUB_IDS below, so the cast states what the loop
   // guarantees: every id in that list is present by the time this returns.
   const byId = {} as Record<string, StubEl> & Record<StubId, StubEl>;
   for (const id of STUB_IDS) {
     const el = makeEl('div');
+    el.id = id;
+    byId[id] = el;
+  }
+  // Added before the bundle runs, not after, because the page looks its own
+  // state up during the init frame: a section folded on the previous load has to
+  // be findable by the time restoreCollapsed goes looking for it.
+  for (const [id, el] of Object.entries(opts.elements ?? {})) {
     el.id = id;
     byId[id] = el;
   }
@@ -235,7 +257,14 @@ function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}):
     getElementById: (id: string) => byId[id],
     querySelector: (sel: string) => {
       const m = /^\.accordion-header\[data-view="(\w+)"\]$/.exec(sel);
-      return m ? (accordionByView[m[1] ?? ''] ?? null) : null;
+      if (m) return accordionByView[m[1] ?? ''] ?? null;
+      // The one other selector this program looks anything up by. A section's
+      // chevron is reached through it, so without this a fold would move the
+      // body and leave the arrow pointing the wrong way, with nothing here to
+      // catch it — the `undefined` from a missing map entry would be read as
+      // "this heading has no chevron", which is the guard's legitimate case.
+      const head = /^\[data-target="([^"]*)"\]\.section-head$/.exec(sel);
+      return head ? (opts.heads?.[head[1] ?? ''] ?? null) : null;
     },
     querySelectorAll: (sel: string) => {
       if (sel === '.accordion-header') return accordionHeaders;
@@ -251,7 +280,11 @@ function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}):
   const window = {
     addEventListener(type: string, fn: StubHandler) { (winHandlers[type] ??= []).push(fn); },
     ResizeObserver: undefined as unknown,
-    mermaid: undefined as unknown,
+    // Undefined for every run but the mermaid-failure one below, which is what
+    // makes the `else { mermaidDone = true }` branch the covered path by
+    // default and the failure branch an explicit case rather than a side effect
+    // of the harness not having a mermaid.
+    mermaid: opts.mermaid,
     __PREVIEW_DATA__: { headings: tree, tables: [], diagrams: [] } as {
       headings: StubTocNode[];
       tables: StubTocNode[];
@@ -295,6 +328,8 @@ function run(spyTarget: string, opts: { state?: Record<string, unknown> } = {}):
   const rows = graph.children.filter((c) => c.className && c.className.includes('toc-row'));
   rows.forEach((r, i) => { r.offsetTop = i * 32; r.offsetHeight = 32; });
   graph.scrollHeight = rows.length * 32;
+  // Before the init frame, because that is when drawGraph reads it.
+  if (opts.detachRows) rows.forEach((r) => { r.offsetParent = null; });
   rafQueue.splice(0).forEach((cb) => { cb(); }); // init rAF: drawGraph + onScroll
 
   const svg = graph.children.find((c) => c.tag === 'svg');
@@ -615,6 +650,122 @@ check('a re-render restores the stashed scroll position', s2.byId.contentPane.sc
 const s3 = run('', { state: {} });
 check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollTop === 0);
 
+// ---- a section the reader folded survives a re-render ----
+// Collapse is a class on the element, and a re-render replaces every element —
+// so without the copy kept in webview state, every keystroke sprang open every
+// section the reader had closed. The symptom is the preview undoing something
+// the reader did, which reads as the preview fighting back rather than as a
+// missing feature, and nothing in the page accounts for it.
+const folded = makeEl('div');
+const untouched = makeEl('div');
+run('', {
+  state: { collapsed: ['body-folded'] },
+  elements: { 'body-folded': folded, 'body-untouched': untouched },
+});
+check(
+  'a re-render brings back the folded sections and only those',
+  folded.classList.contains('collapsed') && !untouched.classList.contains('collapsed')
+);
+
+// An id the previous render produced and this one no longer has: the document
+// deleted that section while the panel was showing another file. It is skipped
+// rather than chased — and skipping has to not throw, since the id comes back
+// out of a store this program does not own.
+check('a remembered id the document no longer has is skipped', run('', { state: { collapsed: ['body-deleted'] } }).rows.length === 7);
+// The store is the host's, so its contents are `unknown` until read — the same
+// reason getState is typed the way it is. A value that is not a list of strings
+// is ignored rather than iterated.
+check('a collapsed value that is not a list is ignored', run('', { state: { collapsed: 'not-an-array' } }).rows.length === 7);
+
+// ---- clicking a heading folds its section, and remembers it ----
+// This handler moved from the heading element to the document when re-renders
+// began replacing headings: bound to the element, it died with the element and
+// left a heading that still looked clickable. What it does has not changed, so
+// this is the assertion the per-element version would have carried.
+const chev = makeEl('span');
+chev.className = 'chev';
+const clickHead = makeEl('h2');
+clickHead.className = 'section-head';
+clickHead.dataset.target = 'body-click';
+clickHead.closest = (sel: string) => (sel === '.section-head' ? clickHead : null);
+clickHead.querySelector = (sel: string) => (sel === '.chev' ? chev : null);
+const clickBody = makeEl('div');
+clickBody.className = 'section-body';
+
+const hc = run('', { elements: { 'body-click': clickBody }, heads: { 'body-click': clickHead } });
+fireClickOn(hc, clickHead);
+check('a heading click folds its section', clickBody.classList.contains('collapsed'));
+check('...and the arrow turns with it', chev.classList.contains('collapsed'));
+check(
+  '...and the fold is recorded for the next render',
+  Array.isArray(hc.state.collapsed) && hc.state.collapsed.includes('body-click')
+);
+
+fireClickOn(hc, clickHead);
+check('clicking it again unfolds the section', !clickBody.classList.contains('collapsed'));
+check('...turns the arrow back', !chev.classList.contains('collapsed'));
+check(
+  '...and drops it from the record',
+  Array.isArray(hc.state.collapsed) && !hc.state.collapsed.includes('body-click')
+);
+
+// ---- an outline that cannot lay itself out says so ----
+// drawGraph keeps the rows that have a layout box. Rows that are not in the
+// container — a stale reference to a previous build's rows — all filter out, the
+// svg is cleared, and the pane is simply blank: nothing throws, nothing is
+// logged, and the reader is looking at an outline with no entries and no reason.
+// The container's own visibility is what separates that from a graph inside a
+// folded accordion section, which is legitimately empty.
+const detached = run('', { detachRows: true });
+const warned = detached.posted.find((m) => m.type === 'log');
+check('an outline that laid out none of its rows says so', warned !== undefined && warned.level === 'warn');
+check(
+  '...naming how many rows it could not place',
+  typeof warned?.message === 'string' && warned.message.includes('7')
+);
+// The other half: a graph that drew itself is silent. Without this the check
+// above would pass for a webview that warned on every draw.
+check('...and an outline that drew itself posts nothing at all', base.posted.length === 0);
+
+// ---- a diagram that fails to render -> the host's Output Channel ----
+// mermaid rejects asynchronously and this file is synchronous from top to
+// bottom, so the rejection is stood in for by a thenable that runs its catch
+// handler inline. Making the harness async to await one Promise.reject would
+// mean making every check in the file async; the code under test only ever
+// calls `.then().catch()`, so this exercises exactly that path, and what is
+// asserted below is what the webview posted rather than anything about timing.
+interface SyncThenable {
+  then(): SyncThenable;
+  catch(handler: (err: unknown) => void): SyncThenable;
+}
+const rejectedMermaid = (): SyncThenable => {
+  const chain: SyncThenable = {
+    then: () => chain,
+    catch: (handler) => {
+      handler(new Error('bad diagram'));
+      return chain;
+    },
+  };
+  return chain;
+};
+
+const mermaidFail = run('', { mermaid: { initialize() {}, run: rejectedMermaid } });
+const logMsg = mermaidFail.posted.find((m) => m.type === 'log');
+check('a diagram that fails to render posts a log message', logMsg !== undefined);
+check('the log message is an error', logMsg?.level === 'error');
+check(
+  'the log message names what failed',
+  typeof logMsg?.message === 'string' && logMsg.message.includes('mermaid')
+);
+// The stack is dropped at the sender, so this is asserting the sender's job
+// rather than the host's — but it is the sender's job that keeps a bundle's
+// internal frames out of a log the user reads.
+check(
+  'the log message carries no stack',
+  typeof logMsg?.message === 'string' && !logMsg.message.includes('\n    at ')
+);
+check('a failed diagram posts nothing else', mermaidFail.posted.length === 1);
+
 // ---- the host's guard must accept what this webview actually sends ----
 // The host runs isWebviewToHost() over every message before acting on it. If
 // the guard and the webview ever disagree, the webview posts, the host drops it
@@ -627,7 +778,7 @@ check('a re-render with no stash starts at the top', s3.byId.contentPane.scrollT
 // why the check scripts need Node 24, which is also what CI pins.
 const { isWebviewToHost } = require('../src/shared/protocol.ts') as typeof import('../src/shared/protocol');
 
-const sent = [...cl.posted, ...lk.posted];
+const sent = [...cl.posted, ...lk.posted, ...mermaidFail.posted];
 check('the webview posted messages to check', sent.length > 0);
 check('every message the webview sends passes the host guard', sent.every((m) => isWebviewToHost(m)));
 
@@ -637,6 +788,10 @@ check('the host guard rejects a toggleTask with no checked flag',
   !isWebviewToHost({ type: 'toggleTask', line: 5 }));
 check('the host guard rejects a toggleTask with a string line',
   !isWebviewToHost({ type: 'toggleTask', line: '5', checked: true }));
+check('the host guard rejects a log with a level it cannot route',
+  !isWebviewToHost({ type: 'log', level: 'verbose', message: 'hi' }));
+check('the host guard rejects a log with no message',
+  !isWebviewToHost({ type: 'log', level: 'error' }));
 check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
 check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
 check('the host guard rejects null', !isWebviewToHost(null));

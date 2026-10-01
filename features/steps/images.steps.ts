@@ -19,11 +19,34 @@ const { parseSourceRef, planImageSource } = require('../../src/sourceRef.ts') as
 // does not bind to a step's parameter at all, so absence needs a name.
 const ABSENT = 'none';
 
+// Neither pattern carries the `g` flag, so `exec` always searches from the
+// start and reusing them across calls is safe.
+const SRC_ATTR = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+const ALT_ATTR = /\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+
+/**
+ * One attribute's value out of a tag, whichever quote style it was written in.
+ *
+ * Both styles, because a raw `<img src='x.png'>` is legal HTML and the renderer
+ * now resolves one. The leading `\s` is the same guard the renderer's own
+ * pattern carries: without it `\bsrc` matches the `src` in `data-src`, and this
+ * would read the wrong attribute out of the tag it is describing.
+ *
+ * Indexed rather than searched for the first defined group: the alternation has
+ * exactly two, so at most one of them matched, and under noUncheckedIndexedAccess
+ * the two lookups are already `string | undefined` — which is what makes `??`
+ * the right shape here rather than a filter over an array typed `string[]`.
+ */
+function attrValue(tag: string, pattern: RegExp): string {
+  const m = pattern.exec(tag);
+  return m?.[1] ?? m?.[2] ?? '';
+}
+
 /** Every `<img>` the preview emitted, as {src, alt}. */
 function imageTags(html: string): { src: string; alt: string }[] {
   return [...html.matchAll(/<img\b[^>]*>/g)].map(([tag = '']) => ({
-    src: /\bsrc="([^"]*)"/.exec(tag)?.[1] ?? '',
-    alt: /\balt="([^"]*)"/.exec(tag)?.[1] ?? '',
+    src: attrValue(tag, SRC_ATTR),
+    alt: attrValue(tag, ALT_ATTR),
   }));
 }
 
@@ -57,6 +80,35 @@ Then<PreviewWorld>('the image is loaded from {string}', function (expected: stri
   assert.ok(
     sources.includes(expected),
     `expected an image loaded from ${JSON.stringify(expected)}, got ${JSON.stringify(sources)}`
+  );
+});
+
+// The negative half of the two above, and the reason it is a step of its own:
+// "nothing was rewritten" is not the same assertion as "the right thing was
+// rewritten", and the failure it catches is a rewrite that reached an attribute
+// it had no business touching — `data-src`, `srcset`, or a tag inside a code
+// fence where the angle brackets are supposed to be text.
+Then<PreviewWorld>('the host was never asked to resolve anything', function () {
+  assert.deepStrictEqual(
+    this.imageRequests,
+    [],
+    `the host was asked to resolve ${JSON.stringify(this.imageRequests)}, and nothing in this document is a source it should have rewritten`
+  );
+});
+
+/** Every `<video>`/`<audio>`/`<source>` the preview emitted. */
+function mediaSources(html: string): string[] {
+  return [...html.matchAll(/<(?:video|audio|source)\b[^>]*>/gi)].map(
+    ([tag = '']) => /\bsrc="([^"]*)"/.exec(tag)?.[1] ?? ''
+  );
+}
+
+Then<PreviewWorld>('the video is loaded from {string}', function (expected: string) {
+  const sources = mediaSources(this.html);
+  assert.ok(sources.length > 0, 'no <video> reached the page at all');
+  assert.ok(
+    sources.includes(expected),
+    `expected a video loaded from ${JSON.stringify(expected)}, got ${JSON.stringify(sources)}`
   );
 });
 

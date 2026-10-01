@@ -10,6 +10,12 @@ const esbuild = require('esbuild') as typeof import('esbuild');
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 
+// The outline node shape, named here for the tree walk in the checks below. It
+// lives in the shared contract, which is where src/markdown.ts takes it from
+// too — an inline import query because this file is CommonJS and every other
+// import in it is written the same way.
+type TocNode = import('../src/shared/protocol').TocNode;
+
 const root = path.join(__dirname, '..');
 const bundle = path.join(root, 'out', 'render-check.bundle.js');
 const sample = path.join(root, 'samples', 'kitchen-sink.md');
@@ -72,8 +78,160 @@ async function main(): Promise<void> {
   check('malformed latex does not throw', /katex/.test(html) && html.length > 1000);
   check('mermaid blocks (both diagrams)', /class="mermaid" id="diagram-1"/.test(html) && /class="mermaid" id="diagram-2"/.test(html));
 
+  // ---- raw HTML -------------------------------------------------------------
+  // The sample carries a whole section of it, and the point of these is the
+  // same as the point of the section: raw HTML arrives as markup rather than as
+  // the markup's own text. `&lt;` anywhere in a place the document wrote `<` is
+  // the failure, and it is the one a reader sees.
+  check('raw HTML renders as markup', /<kbd>Ctrl<\/kbd>/.test(html) && /<abbr title="Application Programming Interface">/.test(html));
+  // Matches any attributes rather than the bare `<table>` this used to look for,
+  // because the scan below now puts an id on this tag — and it anchors on a cell
+  // only the hand-written table carries, which is what keeps it a check about
+  // the raw table rather than about Markdown tables in general.
+  check('a raw HTML table renders as a table', /<table\b[^>]*>[\s\S]*?<td>Markdown parse<\/td>/.test(html));
+  check('raw HTML blocks render (details/dl/figure)', /<details>/.test(html) && /<dl>/.test(html) && /<figcaption>/.test(html));
+  check('comments pass through as real comments', /<!--[\s\S]*?-->/.test(html) && !html.includes('&lt;!--'));
+
+  // A code block is where the escaping is still correct and still required: a
+  // document about HTML must be able to show a tag without rendering one. Both
+  // the fenced and the indented form, because they take different paths through
+  // markdown-it and only one of them was ever looked at.
+  check('a fenced code block still escapes markup', /&lt;angle brackets&gt;/.test(html));
+
+  // The half the renderer owns: a `<img>` written as raw HTML is offered to the
+  // host's resolver exactly as a Markdown one is. Rendered here with a resolver
+  // rather than without, because without one there is nothing to observe — the
+  // source is passed through untouched either way.
+  const rawImg = renderMarkdown('<img src="raw.png" alt="raw">', {
+    resolveImage: (src) => `resolved:${src}`,
+  }).html;
+  check('a raw HTML image is resolved by the host', /<img src="resolved:raw\.png" alt="raw">/.test(rawImg));
+  check(
+    'a raw HTML image the host declines is left alone',
+    /<img src="https:\/\/example\.com\/x\.png">/.test(renderMarkdown('<img src="https://example.com/x.png">').html)
+  );
+  // Asserted as "not resolved" rather than as a literal string, because the
+  // fenced block is highlighted: highlight.js wraps the tag in spans of its
+  // own, so the exact bytes are the highlighter's business and not this
+  // check's. That the source is still visible as text and was never handed to
+  // the resolver is the property.
+  const fenced = renderMarkdown('```html\n<img src="fenced.png">\n```', {
+    resolveImage: (s) => `resolved:${s}`,
+  }).html;
+  check(
+    'a raw HTML image inside a code fence is not resolved',
+    fenced.includes('fenced.png') && !fenced.includes('resolved:fenced.png')
+  );
+
+  // ---- mixed HTML and Markdown ----------------------------------------------
+  // Inline HTML is transparent, so the sample puts a tag in a sentence and the
+  // Markdown around it still renders.
+  check(
+    'inline HTML inside a Markdown paragraph renders',
+    /<abbr title="Too Long; Did Not Read">/.test(html) && /<strong>bold after a tag<\/strong>/.test(html)
+  );
+
+  // The block case turns on a blank line, and the sample carries both forms
+  // precisely so this can assert the difference rather than describe it: without
+  // a blank line the block is raw and its Markdown is text, with one it renders.
+  check(
+    'Markdown inside an unblanked HTML block stays literal',
+    /<div class="callout">\s*\*\*not bold\*\*/.test(html)
+  );
+  check('Markdown inside a blank-lined HTML block renders', /<div class="callout">\s*<p><strong>Bold<\/strong>/.test(html));
+
+  // The same blank line decides whether a heading exists at all, and the sample
+  // writes two `####` headings of which only one is a heading. A heading the
+  // block above it swallowed is not merely unstyled — it is missing from the
+  // outline, which is a silent failure, and that is why it is asserted rather
+  // than left to the eye. `Kept` is nested under its `###`, so this has to look
+  // through the tree rather than at the roots.
+  const hasHeading = (label: string): boolean => {
+    const anyIn = (nodes: TocNode[]): boolean =>
+      nodes.some((n) => n.label.startsWith(label) || anyIn(n.children ?? []));
+    return anyIn(r.headings);
+  };
+  check('a heading with no blank line above it never becomes one', !hasHeading('Swallowed'));
+  check('a heading with a blank line above it does', hasHeading('Kept'));
+
+  // ---- tables get their ids from one scan ------------------------------------
+  // The Tables tab is built from these ids, so what it lists is exactly what the
+  // scan found — which makes the scan the thing to assert rather than the tab.
+  //
+  // Every document below opens with a heading on purpose. A table written before
+  // the first one lands in the intro block, which no scan covers, so a check
+  // without a heading would pass whether or not the scan worked at all — it
+  // would be asserting the absence of a thing that was never in scope.
+  const rawTable = renderMarkdown('## T\n\n<table>\n<tr><td>a</td></tr>\n</table>').html;
+  check('a raw HTML table is given an id', /<table id="table-1">/.test(rawTable));
+
+  // Read back out of the tag rather than assumed, so a table the author named
+  // keeps that name — it is the anchor they can link to, and inventing a second
+  // one for it would break every link already written to it.
+  const named = renderMarkdown('## T\n\n<table id="totals">\n<tr><td>a</td></tr>\n</table>');
+  check('a table the author named keeps that name', /<table id="totals">/.test(named.html));
+  check('and the outline targets what the author named', named.tables[0]?.target === 'totals');
+
+  // The reason the id is assigned by a scan and not by the renderer: the two run
+  // in different orders, and a section holding both syntaxes is where they
+  // disagree. Raw first, Markdown second, and the numbering has to say so —
+  // assigning here in render order would number them backwards and list them
+  // that way.
+  const both = renderMarkdown('## T\n\n<table>\n<tr><td>raw</td></tr>\n</table>\n\n| a |\n| - |\n| md |\n');
+  check(
+    'a raw table and a Markdown one are numbered in document order',
+    both.tables.length === 2 &&
+      both.tables[0]?.target === 'table-1' &&
+      both.tables[1]?.target === 'table-2' &&
+      both.html.indexOf('id="table-1"') < both.html.indexOf('id="table-2"')
+  );
+
+  // The scan is a regular expression over rendered HTML, so a table *shown* as
+  // text is how it goes wrong: a document about HTML has to be able to write
+  // `<table>` without the outline quietly gaining an entry for it. Both the
+  // fenced and the indented form, because they take different paths through
+  // markdown-it and only one of them was ever looked at.
+  const shownAsText = renderMarkdown('## T\n\n```\n<table>\n```\n\n    <table>\n');
+  check(
+    'a table shown as code is neither given an id nor listed',
+    shownAsText.html.includes('&lt;table&gt;') &&
+      !shownAsText.html.includes('id="table-') &&
+      shownAsText.tables.length === 0
+  );
+
+  // The other direction from the code case: markup that is not a table at all.
+  // A word boundary sits between the `-` and the `w` here, so a pattern written
+  // with `\b` would take this custom element for a table and the outline would
+  // gain an entry that scrolls to something that is not one.
+  const customElement = renderMarkdown('## T\n\n<table-widget rows="3"></table-widget>\n');
+  check(
+    'an element whose name merely starts with "table" is not a table',
+    customElement.tables.length === 0 && !customElement.html.includes('id="table-1"')
+  );
+
+  // Every row the Tables tab lists has to point at an element that is actually
+  // in the page. A target that is not is a row that looks like a link and does
+  // nothing when it is clicked — the failure this change is about, one step
+  // further on, and the one an id assigned without being written would produce.
+  // The closing quote is part of the needle so `table-1` cannot be satisfied by
+  // `table-11`.
+  check(
+    'every table target the outline lists is an element on the page',
+    r.tables.length > 0 && r.tables.every((t) => html.includes(`id="${t.target}"`))
+  );
+
+  // Two ways to end up with two ids on one tag — overwriting one the author
+  // wrote, and adding a class to a tag that already has one — asserted as the
+  // single invariant both would break.
+  const attrCount = (tag: string, attr: string): number =>
+    (tag.match(new RegExp(`\\s${attr}=`, 'g')) ?? []).length;
+  const tableTags = html.match(/<table\b[^>]*>/gi) ?? [];
+  check(
+    'no table tag carries a duplicated attribute',
+    tableTags.length > 0 && tableTags.every((t) => attrCount(t, 'id') <= 1 && attrCount(t, 'class') <= 1)
+  );
+
   // ---- structure ------------------------------------------------------------
-  check('HTML comments stripped', !html.includes('&lt;!--'));
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
   check('second H1 stays in the outline', r.headings.some((h) => h.label.startsWith('A Second Top-Level Heading')));
   check('quote-nested heading NOT in outline', !r.headings.some((h) => h.label.includes('Markdown Inside Quotes')));
@@ -86,7 +244,9 @@ async function main(): Promise<void> {
     return !!h6 && h6.label.startsWith('H6:');
   })());
   check('outline has multiple roots', r.headings.length >= 6);
-  check('tables collected (2)', r.tables.length === 2);
+  // Six, not three. The sample's three Markdown tables are joined by the three
+  // written by hand — including the one the document named itself.
+  check('tables collected (6)', r.tables.length === 6);
   check('diagrams collected (2)', r.diagrams.length === 2);
   check('task checkboxes with source lines', /task-checkbox/.test(html) && /data-line="\d+"/.test(html));
   check('checked + unchecked boxes both emitted', /task-checkbox checked/.test(html) && /class="task-checkbox"/.test(html));
@@ -107,7 +267,13 @@ async function main(): Promise<void> {
   check('bare email still linkifies', /href="mailto:me@example\.com"/.test(render('Ping me@example.com please.')));
   check('explicit relative markdown link survives', /href="setup\.md"/.test(render('Read [setup](setup.md).')));
 
-  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span']) {
+  // `script`, `form` and `iframe` are in this list on purpose. They are the
+  // tags a document is not supposed to be able to *do* anything with, and a
+  // mismatch in one of them is what renested the whole right-hand pane before —
+  // so the check that they pair is the cheap half of the safety story, taken
+  // here rather than in the BDD suite because it is a property of the sample
+  // document rather than of a scenario.
+  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe', 'video', 'audio']) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
     check(`tag balance <${tag}> (${open} open / ${close} close)`, open === close);

@@ -8,6 +8,18 @@
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: build"
+    },
+    {
+      // The default config above rebuilds with `npm: build`, which strips the
+      // timing instrumentation from src/shared/perf.ts — so launching it after
+      // `npm run build:profile` would silently undo the instrumented build.
+      // This config exists so the flag and the build cannot disagree.
+      "name": "Run graphite.md (profiling)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: build:profile"
     }
   ]
 }

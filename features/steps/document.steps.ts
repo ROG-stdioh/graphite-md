@@ -27,8 +27,13 @@ Given<PreviewWorld>('a markdown document:', function (docString: string) {
 });
 
 // The single-line form, for scenarios where a docstring would be noise.
-// Cucumber unescapes \n in {string}, so a short multi-line doc still reads
-// inline when that is clearer.
+//
+// It is single-line in fact and not just in style: Cucumber does not unescape
+// \n inside {string}, so a "\n" written here arrives as a literal backslash and
+// the letter n. This comment claimed the opposite until a scenario about line
+// breaks was written against it and failed; nothing in the suite had relied on
+// it either way, which is exactly why it survived. A document with a real line
+// break needs the docstring form above.
 Given<PreviewWorld>('a markdown document {string}', function (source: string) {
   this.source = source;
 });

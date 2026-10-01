@@ -16,6 +16,11 @@ import hljs from 'highlight.js';
 // outline data that crosses to the webview, so the host and the webview have to
 // name the same type or the guard in protocol.ts is checking something else.
 import type { TocNode } from './shared/protocol';
+// The sink, not a channel: `log` is a module-level forwarder whose default is
+// `console`, because this file is loaded by the check scripts and the BDD suite
+// with no editor around it. `activate()` calls setLogger to point it at the
+// Output Channel. See src/logger.ts.
+import { log } from './logger';
 
 export interface RenderResult {
   html: string;
@@ -47,7 +52,21 @@ export interface RenderEnv {
 // One markdown-it instance is enough; it holds no per-render state itself —
 // all per-render bookkeeping (counters, section stack) lives in renderMarkdown().
 const md: MarkdownIt = new MarkdownIt({
-  html: false,
+  // Raw HTML renders. That is what every other Markdown renderer does — GitHub,
+  // every static site generator, and VS Code's own preview, which is built as
+  // `new MarkdownIt({ html: true })` — so `<mark>`, `<kbd>`, `<details>` and a
+  // hand-written `<table>` all work everywhere except here. A document that
+  // looked right in every other tool looked wrong only in this one, with
+  // nothing in the source to hint at why.
+  //
+  // This flag is not the safety boundary, and treating it as one was the
+  // mistake. `html` decides what gets *rendered*, not what gets *run*: the
+  // page's policy is `script-src 'nonce-…'` with no `'unsafe-inline'`, so an
+  // inline `<script>` or an `onclick=` attribute cannot execute whether this is
+  // true or false, and `default-src 'none'` blocks `<iframe>` either way. See
+  // the CSP in src/webviewHtml.ts, which is where that decision actually lives
+  // and where the scenarios that hold it live too.
+  html: true,
   linkify: true,
   typographer: true,
   // Syntax highlighting for fenced code blocks. Returning '' tells
@@ -99,32 +118,32 @@ try {
     } satisfies TexmathOptions
   );
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-texmath, math rendering will be disabled', err);
+  log.error('failed to register markdown-it-texmath, math rendering will be disabled', err);
 }
 try {
   md.use(markdownItSup); // ^2^
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-sup, superscripts will be disabled', err);
+  log.error('failed to register markdown-it-sup, superscripts will be disabled', err);
 }
 try {
   md.use(markdownItSub); // ~2~
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-sub, subscripts will be disabled', err);
+  log.error('failed to register markdown-it-sub, subscripts will be disabled', err);
 }
 try {
   md.use(markdownItIns); // ++underline++
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-ins, ++underlines++ will be disabled', err);
+  log.error('failed to register markdown-it-ins, ++underlines++ will be disabled', err);
 }
 try {
   md.use(markdownItMark); // ==mark==
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-mark, ==marks== will be disabled', err);
+  log.error('failed to register markdown-it-mark, ==marks== will be disabled', err);
 }
 try {
   md.use(markdownItFootnote);
 } catch (err) {
-  console.error('graphite.md: failed to register markdown-it-footnote, footnotes will be disabled', err);
+  log.error('failed to register markdown-it-footnote, footnotes will be disabled', err);
 }
 
 // ---- blockquote -> .callout -------------------------------------------------
@@ -154,19 +173,75 @@ function claimId(base: string): string {
   return id;
 }
 
-// ---- table -> .md-table + a stable id, so the Tables TOC tab can link to it --
+// ---- table -> .md-table, and an id assigned after the fact ------------------
+// No id is assigned here. This rule fires in *render* order, and a section
+// holding a table written in raw HTML next to one written in Markdown is
+// numbered by two different passes — so leaving the id to this rule would
+// allocate the Markdown table's first whatever order they appear in, and the
+// Tables tab would list them backwards. The id comes from one scan over the
+// finished HTML instead (collectTables, below), which is the only place in the
+// renderer a table is given a name.
+//
+// The class is a hook and only a hook: preview.css styles every table in the
+// pane, so nothing depends on it and nothing should start to.
+md.renderer.rules.table_open = () => `<table class="md-table">`;
+
+// A `<table` that opened a tag, and the id that tag may already carry.
+//
+// The lookahead rather than a `\b`, because a word boundary sits between the
+// `-` and the `w` of `<table-widget>` — a custom element is not a table, and an
+// outline entry that scrolls to one is worse than no entry at all. What follows
+// a real tag name is always a space, a `>` or a `/`.
+//
+// The leading `\s` in the id pattern is the same idea in the other direction:
+// `\bid` matches the id in `data-id`, so a `<table data-id="grid">` would read
+// as a table that already had a name. It is captured rather than merely
+// matched, because replacing an id has to put that whitespace back or the new
+// attribute runs into the one before it.
+const TABLE_TAG = /<table(?=[\s/>])[^>]*>/gi;
+const TABLE_ID = /(\s)id\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
 let tableCounter = 0;
-md.renderer.rules.table_open = () => {
-  // The counter keeps its `table-N` shape even when it has to step over a name
-  // a heading claimed, because collectTables finds these ids again by that
-  // shape — a bumped `table-1-1` would drop the table out of the outline.
+
+/**
+ * The next free `table-N`.
+ *
+ * The counter keeps its shape even when it has to step over a name a heading
+ * claimed, because the shape is what the Tables tab is built from — a bumped
+ * `table-1-1` would read as something else entirely. claimId cannot do this: it
+ * suffixes the whole base, which is right for `body-text-1` and wrong here.
+ */
+function claimTableId(): string {
   do {
     tableCounter += 1;
   } while (claimedIds.has(`table-${tableCounter}`));
   const id = `table-${tableCounter}`;
   claimedIds.add(id);
-  return `<table class="md-table" id="${id}">`;
-};
+  return id;
+}
+
+/** A `<table>` tag's own `id`, whichever quote style it was written in. */
+function authoredTableId(tag: string): string | undefined {
+  const m = TABLE_ID.exec(tag);
+  return m?.[2] ?? m?.[3];
+}
+
+/**
+ * A `<table>` tag carrying `id`.
+ *
+ * An id it already had is replaced rather than added to: two `id` attributes on
+ * one tag is not a rendering error, it is a silent misdirection — the browser
+ * takes the first and the outline targets the second. The quote style the
+ * author used is kept, so a tag that is being given the name it already had
+ * comes back out unchanged.
+ */
+function withTableId(tag: string, id: string): string {
+  const m = TABLE_ID.exec(tag);
+  if (m === null) return tag.replace(/^<table/i, `<table id="${id}"`);
+  const quote = m[2] === undefined ? "'" : '"';
+  const end = m.index + m[0].length;
+  return `${tag.slice(0, m.index)}${m[1] ?? ' '}id=${quote}${id}${quote}${tag.slice(end)}`;
+}
 
 // Reads a token the stream guarantees is there. noUncheckedIndexedAccess
 // cannot see that invariant, and both alternatives lose something: a silent
@@ -239,6 +314,71 @@ md.renderer.rules.image = (tokens, idx, options, env: RenderEnv, self) => {
 
   return self.renderToken(tokens, idx, options);
 };
+
+// ---- raw HTML: the same src treatment the Markdown syntax gets --------------
+// The rule above only ever sees a Markdown image. Raw HTML arrives by a
+// different door — markdown-it hands it through verbatim — and lands in the
+// webview with a relative `src`, which is the broken box the rule above exists
+// to prevent, arriving the other way.
+//
+// markdown-it splits raw HTML into two token types by where it sat in the
+// source: `html_block` when the markup started its own block, `html_inline` for
+// a tag inside a line of prose. Both default to returning `token.content`
+// untouched, and both are overridden here.
+//
+// A renderer rule rather than one pass over the finished page, because a pass
+// over the page cannot tell markup from a document *about* markup. A fenced or
+// indented code block holding `<img src="x.png">` is a `fence` or `code_block`
+// token whose `<` was escaped to `&lt;` before this file ever saw it, and
+// neither rule below is handed it — so a page that documents how to write an
+// image tag keeps showing it as text. An `html_inline` token is also one
+// complete tag, parsed by markdown-it with CommonMark's own attribute grammar,
+// which knows a `>` inside a quoted value does not end the tag.
+//
+// `src`, on the four elements that carry one. Two attributes are deliberately
+// left alone: `srcset`, which holds a list of candidates rather than a single
+// source, and `poster`, which is the frame a video draws before it plays.
+// Neither is a regression — nothing resolved them before this change either.
+//
+// The scan inside an `html_block` is textual, and knowingly so: the input is
+// HTML that markdown-it did not parse, and parsing it properly would mean
+// shipping an HTML parser to change one attribute. Where that shows is a `src`
+// whose own value contains a `>` — the tag ends early, the attribute no longer
+// matches, and the source is left exactly as written. Unresolved rather than
+// mis-resolved, which is the direction a failure here should fall.
+const SRC_TAG = /<(img|video|audio|source)\b[^>]*>/gi;
+const SRC_ATTR = /(\s)src\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+function resolveRawSrcs(html: string, env: RenderEnv): string {
+  const resolve = env.resolveImage;
+  // No resolver is a real state, not a gap: this is what the check scripts and
+  // the BDD suite render with, and what the host passes for a document whose
+  // folder it cannot name.
+  if (resolve === undefined) return html;
+
+  return html.replace(SRC_TAG, (tag) =>
+    tag.replace(
+      SRC_ATTR,
+      (attr: string, lead: string, doubleQuoted: string | undefined, singleQuoted: string | undefined) => {
+        // Exactly one alternative matched, so at most one of these is a string;
+        // `??` covers the type rather than a case, and an empty `src=""` is a
+        // string, so it is passed to the resolver rather than skipped.
+        const resolved = resolve(doubleQuoted ?? singleQuoted ?? '');
+        if (resolved === undefined) return attr;
+        // The quote style is the author's and is kept; only the value changes.
+        // A resolver returns a URL, so it cannot contain the quote delimiting it.
+        const quote = doubleQuoted === undefined ? "'" : '"';
+        return `${lead}src=${quote}${resolved}${quote}`;
+      }
+    )
+  );
+}
+
+md.renderer.rules.html_block = (tokens, idx, _options, env: RenderEnv) =>
+  resolveRawSrcs(at(tokens, idx, 'an html_block token').content, env);
+
+md.renderer.rules.html_inline = (tokens, idx, _options, env: RenderEnv) =>
+  resolveRawSrcs(at(tokens, idx, 'an html_inline token').content, env);
 
 // ---- checklists: "- [ ] foo" / "- [x] foo" -> a clickable checkbox --------
 // markdown-it has no built-in task list support, and existing plugins don't
@@ -343,25 +483,26 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   const tables: TocNode[] = [];
   const diagrams: TocNode[] = [];
 
-  // We render with html:false (raw HTML is disabled — a markdown preview
-  // shouldn't execute arbitrary HTML/script from the file it's rendering).
-  // The one thing people still expect to work from plain HTML is comments,
-  // since "<!-- note -->" is the universal "hide this" convention in both
-  // Markdown and HTML. With html:false those would otherwise leak into the
-  // page as visible escaped text (`&lt;!-- note --&gt;`), so we strip them
-  // before parsing rather than turning raw HTML rendering on just for this.
+  // The source goes to markdown-it exactly as the file holds it.
   //
-  // The replacement keeps the comment's line breaks. Every line number the
-  // renderer hands back — the `data-line` a checklist box carries, which is
-  // what the host edits the file with — is a position in the source it parsed,
-  // so a comment that vanished along with its newlines would shift every line
-  // below it and point those edits at the wrong text. Keeping the breaks means
-  // the parsed source and the file on disk number their lines identically.
-  const source = rawSource.replace(/<!--[\s\S]*?-->/g, (comment: string) =>
-    '\n'.repeat(comment.split('\n').length - 1)
-  );
-
-  const tokens = md.parse(source, env);
+  // It used to be stripped of `<!-- … -->` first. With html:false a comment
+  // rendered as visible `&lt;!-- … --&gt;` text, and a comment is the universal
+  // "hide this" convention in both Markdown and HTML, so it was worth a
+  // pre-pass to keep them off the page. That pre-pass is gone with the option
+  // that needed it: with html:true a comment arrives as a real comment, which
+  // the browser hides for the same reason and with the line breaks the author
+  // actually wrote.
+  //
+  // Those line breaks are the half that has to keep working, and passing the
+  // source through untouched is the strongest form of that guarantee. Every
+  // line number the renderer hands back — the `data-line` a checklist box
+  // carries, which is what the host edits the file with — is a position in the
+  // source it parsed, so anything that shortened the source would shift every
+  // line below it and point those edits at the wrong text. That is not
+  // hypothetical: it is what the pre-pass did wrong before it was fixed to keep
+  // the newlines, and it is what `every checkbox can be toggled in the source
+  // file` in features/safety.feature exists to catch.
+  const tokens = md.parse(rawSource, env);
   applyTaskLists(tokens);
   const slugs = new Map<string, number>();
 
@@ -452,18 +593,36 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     return md.renderer.render(toks, md.options, env);
   }
 
+  // The one place a table is given an id. `table_open` deliberately emits none,
+  // so this scan is the single source — see the note above that rule — and it
+  // runs in document order because a section's body is rendered and scanned
+  // before its children are.
+  //
+  // A table the author named keeps that name, so `<table id="mine">` stays the
+  // anchor they can link to. It goes through the same allocator as everything
+  // else rather than being taken as written, because a name can already be
+  // spoken for: `id="totals"` under `## Totals` collides with the heading's own
+  // anchor. The heading keeps the bare slug — that is the anchor every other
+  // Markdown renderer produces for `## Totals`, and the one a reader's links
+  // point at — and the table takes the next free name in that shape. Writing
+  // the author's id through unconditionally would put two elements on
+  // `id="totals"`, which is the silent misdirection claimedIds exists to
+  // prevent and is strictly worse than an id that moved.
   function collectTables(html: string, sectionLabel: string): string {
-    // tableCounter was already advanced by the renderer; just label the ones
-    // that landed in this section's HTML by scanning for the ids we assigned
-    const matches = html.matchAll(/id="(table-\d+)"/g);
-    // The capture is mandatory in the pattern, so the filter never drops
-    // anything — it is how the type says so. `?? ''` would instead invent an
-    // empty target that the outline would then try to scroll to.
-    const ids = Array.from(matches, (m) => m[1]).filter((id): id is string => id !== undefined);
-    ids.forEach((id, i) => {
-      tables.push({ label: ids.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel, target: id });
+    const targets: string[] = [];
+    const scanned = html.replace(TABLE_TAG, (tag) => {
+      const authored = authoredTableId(tag);
+      const id = authored === undefined ? claimTableId() : claimId(authored);
+      targets.push(id);
+      return withTableId(tag, id);
     });
-    return html;
+    targets.forEach((target, i) => {
+      tables.push({
+        label: targets.length > 1 ? `${sectionLabel} — table ${i + 1}` : sectionLabel,
+        target,
+      });
+    });
+    return scanned;
   }
 
   function collectDiagrams(html: string, sectionLabel: string): string {

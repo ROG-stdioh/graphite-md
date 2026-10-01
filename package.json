@@ -2,7 +2,7 @@
   "name": "graphite-md",
   "displayName": "graphite.md",
   "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "rog-stdioh",
   "license": "MIT",
   "icon": "icon.png",
@@ -50,6 +50,12 @@
         "title": "Open Preview to the Side",
         "category": "graphite.md",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "graphiteMd.showOutput",
+        "title": "Show Output",
+        "category": "graphite.md",
+        "icon": "$(output)"
       }
     ],
     "menus": {
@@ -100,7 +106,11 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.ts && node scripts/copy-assets.ts",
+    "build:profile": "node esbuild.ts --profile && node scripts/copy-assets.ts",
     "watch": "node esbuild.ts --watch",
+    "watch:profile": "node esbuild.ts --watch --profile",
+    "profile": "node scripts/profile.ts",
+    "profile:webview": "node scripts/profile-webview.ts",
     "test:bdd": "cucumber-js",
     "check": "node scripts/render-check.ts && node scripts/graph-check.ts",
     "check:media": "node scripts/media-version-check.ts",

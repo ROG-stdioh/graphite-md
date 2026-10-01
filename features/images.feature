@@ -58,6 +58,95 @@ Feature: Images
     When the preview renders it
     Then the image is described as "a sibling file"
 
+  # ---- raw HTML ------------------------------------------------------------
+  # `<img>` written as HTML takes a different path through the renderer than
+  # `![]()` does — it is never an image token, it arrives as raw markup — and it
+  # used to arrive at the webview unresolved, which is the same broken box by
+  # the other door. The scenarios below are the same contract, held against the
+  # second route.
+
+  Scenario: A raw HTML image is resolved like a Markdown one
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      <img src="diagram.png" alt="a sibling file">
+      """
+    When the preview renders it
+    Then the host was asked to resolve "diagram.png"
+    And the image is loaded from "resolved:diagram.png"
+
+  Scenario: A raw HTML image the host declines is left exactly as written
+    Given the host refuses every image source
+    And a markdown document:
+      """
+      <img src="https://example.com/x.png">
+      """
+    When the preview renders it
+    Then the image is loaded from "https://example.com/x.png"
+
+  # An `<img>` inside a block of markup is the common shape — a figure, a table
+  # cell — and it is one `html_block` token rather than several, so the rewrite
+  # has to find the tag inside it.
+  Scenario: A raw HTML image inside a larger block is still resolved
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      <figure>
+      <img src="inside.png">
+      <figcaption>a caption</figcaption>
+      </figure>
+      """
+    When the preview renders it
+    Then the host was asked to resolve "inside.png"
+    And the image is loaded from "resolved:inside.png"
+
+  Scenario: An image written with single quotes is resolved too
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      <img src='single.png'>
+      """
+    When the preview renders it
+    Then the image is loaded from "resolved:single.png"
+
+  # The half that is not "did it resolve" but "did it resolve the right text":
+  # `data-src` and `srcset` both contain the letters s-r-c and neither is the
+  # attribute this is looking for.
+  Scenario: An attribute that merely contains src is left alone
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      <img data-src="lazy.png" srcset="one.png 1x, two.png 2x" alt="nothing to resolve">
+      """
+    When the preview renders it
+    Then the host was never asked to resolve anything
+
+  # A document *about* HTML is the case that separates a scan of the markup from
+  # a scan of the finished page: in a fenced block the `<` is escaped to `&lt;`
+  # before the renderer sees it, so there is no image token and no markup.
+  Scenario: An image tag inside a code fence is not resolved
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      ```html
+      <img src="example.png">
+      ```
+      """
+    When the preview renders it
+    Then the host was never asked to resolve anything
+
+  # A `<video>` is a source out of the document exactly as a picture is, so it
+  # crosses the same boundary and is resolved by the same resolver.
+  Scenario: A raw HTML video is resolved like an image
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      <video src="clip.mp4" controls></video>
+      """
+    When the preview renders it
+    Then the host was asked to resolve "clip.mp4"
+    And the video is loaded from "resolved:clip.mp4"
+
   # ---- what the host decides a source even is ------------------------------
   # extension.ts cannot be loaded without a running VS Code, so the decision it
   # makes about a source lives in src/sourceRef.ts, where it can be checked

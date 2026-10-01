@@ -25,6 +25,7 @@ const { setWorldConstructor, World } = require('@cucumber/cucumber') as typeof i
 
 const root = path.join(__dirname, '..', '..');
 const bundlePath = path.join(root, 'out', 'bdd.bundle.js');
+const pageBundlePath = path.join(root, 'out', 'bdd-page.bundle.js');
 
 // Rebuilt on every run, never reused from disk. A cached bundle would let the
 // suite pass against the previous version of the source, which is the one
@@ -39,9 +40,43 @@ esbuild.buildSync({
   logLevel: 'silent',
 });
 
-// The bundle path is computed, so the compiler has nothing to resolve; the cast
-// names the module its contents came from.
+// The page builder, bundled the same way and for the same reason. It is the
+// only place the Content Security Policy exists, and the policy is what makes
+// rendering raw HTML safe — so a suite that can only see the renderer can prove
+// the markup arrives and nothing about what happens to it once it has.
+esbuild.buildSync({
+  entryPoints: [path.join(root, 'src', 'webviewHtml.ts')],
+  bundle: true,
+  outfile: pageBundlePath,
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  logLevel: 'silent',
+});
+
+// The bundle paths are computed, so the compiler has nothing to resolve; the
+// casts name the modules their contents came from.
 const { renderMarkdown } = require(bundlePath) as typeof import('../../src/markdown');
+const { buildWebviewHtml } = require(pageBundlePath) as typeof import('../../src/webviewHtml');
+
+/**
+ * Stands in for the webview the host would hand these to.
+ *
+ * Not exported, and deliberately: a value export here would make Node read this
+ * file as an ES module and `require` would stop existing in it. Everything the
+ * steps need from the world comes back through the instance cucumber hands
+ * them, and everything they need from the page comes off the page.
+ */
+const PAGE_STAND_IN = {
+  mediaDir: path.join(root, 'media'),
+  toWebviewUri: (absPath: string): string =>
+    `https://webview.test/${path.relative(path.join(root, 'media'), absPath).split(path.sep).join('/')}`,
+  cspSource: 'https://webview.test',
+  contentWidth: 60,
+  headings: [],
+  tables: [],
+  diagrams: [],
+};
 
 /** One outline node, flattened — see `flatten` below. */
 interface FlatNode {
@@ -74,6 +109,14 @@ class PreviewWorld extends World {
    * question "is there a folder to be relative to" is answerable without one.
    */
   docInFolder: boolean;
+  /**
+   * The `graphiteMd.remoteImages` setting, as the page builder reads it.
+   *
+   * A field rather than a step argument because it changes which sources the
+   * policy admits, and the scenarios that care are about the policy rather than
+   * about the document.
+   */
+  remoteImages: boolean;
 
   constructor(options: IWorldOptions) {
     super(options);
@@ -83,6 +126,7 @@ class PreviewWorld extends World {
     this.imageRequests = [];
     this.refSource = '';
     this.docInFolder = false;
+    this.remoteImages = false;
   }
 
   // Render the document the scenario built up.
@@ -108,6 +152,28 @@ class PreviewWorld extends World {
 
   get diagrams(): TocNode[] {
     return this.result ? this.result.diagrams : [];
+  }
+
+  /**
+   * The whole page the webview is handed: the rendered document, inside the
+   * template that carries the policy.
+   *
+   * Built from the real `buildWebviewHtml` rather than a copy of it. The policy
+   * is the only thing standing between a document's raw HTML and the machine
+   * reading it, and a suite that asserted against its own copy of the policy
+   * would be checking that copy rather than the one that ships.
+   *
+   * A fresh page on every call, nonce and all — which is the honest shape of
+   * it, since that is what the host does. It also means a step that needs the
+   * policy *and* the markup it governs has to call this once and read both off
+   * the same string; two calls are two pages, and the nonces will not match.
+   */
+  buildPage(): string {
+    return buildWebviewHtml({
+      ...PAGE_STAND_IN,
+      remoteImages: this.remoteImages,
+      bodyHtml: this.html,
+    });
   }
 }
 

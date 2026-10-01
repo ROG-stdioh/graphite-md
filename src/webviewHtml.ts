@@ -53,15 +53,37 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   // directive that lets a document reach the network, so it is added by the
   // setting rather than being present and then narrowed — a policy that starts
   // closed is the one that cannot be left ajar by a later edit.
+  //
+  // `media-src` takes the same shape as `img-src` and for the same reason: a
+  // `<video>` or `<audio>` written in raw HTML is a source out of the document
+  // exactly as a picture is, so it crosses the same boundary and answers to the
+  // same setting. Without the directive, `default-src 'none'` refuses it, and
+  // VS Code — which admits media — plays the same file.
+  const mediaSrc = options.remoteImages
+    ? `media-src ${options.cspSource} data: https:`
+    : `media-src ${options.cspSource} data:`;
   const imgSrc = options.remoteImages
     ? `img-src ${options.cspSource} data: https:`
     : `img-src ${options.cspSource} data:`;
   const csp = [
     `default-src 'none'`,
     imgSrc,
+    mediaSrc,
     `style-src ${options.cspSource} 'unsafe-inline'`,
     `font-src ${options.cspSource}`,
+    // Nonce, and only a nonce. There is no `'unsafe-inline'` here and there
+    // must never be one: with raw HTML rendering, an inline `<script>` or an
+    // `onclick=` attribute is markup an author can now write, and this
+    // directive is the entire reason that is safe to allow. The two scripts the
+    // page does run — mermaid and preview.js — carry the nonce.
     `script-src 'nonce-${nonce}'`,
+    // `form-action` is not one of the directives that falls back to
+    // `default-src`, so `default-src 'none'` alone would leave a `<form>` in a
+    // document free to post wherever its `action` points. VS Code relies on
+    // `enableForms: false` for this, which the host now sets too — this is the
+    // half the suite can hold, since panel options need a running editor to
+    // observe and this string does not.
+    `form-action 'none'`,
   ].join('; ');
 
   const initialData: PreviewData = {
@@ -69,6 +91,27 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
     tables: options.tables,
     diagrams: options.diagrams,
   };
+
+  // mermaid is emitted only when the document has a diagram to draw.
+  //
+  // It is 3.18 MB of JavaScript, and the page parses and executes it on every
+  // load — measured on this machine at 164 ms of a 169 ms reload, which makes it
+  // the dominant cost of the preview by an order of magnitude. Every document
+  // paid it, including the great majority that hold no diagram at all, and no
+  // amount of work anywhere else in the page can get that time back. So the tag
+  // is simply not there when there is nothing for it to do.
+  //
+  // The webview is already written for its absence — `window.mermaid` is
+  // undefined and the diagram pass is skipped — but an absence is now ambiguous,
+  // since it means either "this document has no diagrams" or "this document has
+  // diagrams and mermaid failed to load". extension.ts tells them apart from the
+  // side that knows which one it built, and the webview reports the second to
+  // the Output Channel. That is the whole reason the decision lives here rather
+  // than being left to a runtime check in the page.
+  const mermaidTag =
+    options.diagrams.length === 0
+      ? ''
+      : `  <script nonce="${nonce}" src="${mediaUrl('vendor/mermaid.min.js')}"></script>\n`;
 
   // The KaTeX stylesheet is the one media file whose own dependencies are not
   // versioned here: its 60 `url(fonts/…)` references resolve against the
@@ -116,8 +159,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
   </div>
 
   <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${JSON.stringify(initialData)};</script>
-  <script nonce="${nonce}" src="${mediaUrl('vendor/mermaid.min.js')}"></script>
-  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
+${mermaidTag}  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
 </body>
 </html>`;
 }
