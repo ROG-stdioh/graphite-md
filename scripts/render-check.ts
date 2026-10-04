@@ -78,6 +78,25 @@ async function main(): Promise<void> {
   check('malformed latex does not throw', /katex/.test(html) && html.length > 1000);
   check('mermaid blocks (both diagrams)', /class="mermaid" id="diagram-1"/.test(html) && /class="mermaid" id="diagram-2"/.test(html));
 
+  // The two `$$…$$` block rules match at the start of a line and used to consume
+  // the rest of it, so text written after the closing `$$` was dropped without a
+  // trace (#40). The sample has no line of that shape, so these render their own
+  // documents; the last one is the control — narrowing the rules must not cost a
+  // line that really is only a formula its place on the block path, which the
+  // absence of a `<p>` is what shows.
+  const leadingDouble = renderMarkdown('## S\n\n$$x^2$$ is the area.\n');
+  check('a leading $$ formula keeps the text after it', leadingDouble.html.includes('is the area.'));
+  const twoOnALine = renderMarkdown('## S\n\n$$x^2$$ and $$y^2$$ on one line.\n');
+  check(
+    'two $$ formulas on one line keep the text between them',
+    twoOnALine.html.includes('on one line.') && (twoOnALine.html.match(/class="katex"/g) ?? []).length === 2
+  );
+  const aloneDouble = renderMarkdown('## S\n\n$$x^2$$\n');
+  check(
+    'a line that is only a $$ formula is still a block',
+    /katex-display/.test(aloneDouble.html) && !/<p>/.test(aloneDouble.html)
+  );
+
   // ---- raw HTML -------------------------------------------------------------
   // The sample carries a whole section of it, and the point of these is the
   // same as the point of the section: raw HTML arrives as markup rather than as

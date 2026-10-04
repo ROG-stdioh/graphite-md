@@ -179,6 +179,40 @@ try {
 } catch (err) {
   log.error('failed to narrow the `$…$` rule; a price may swallow the next formula', err);
 }
+
+// texmath's two `$$…$$` *block* rules match at the start of a line and then
+// consume the whole rest of it — the rule moves the parser's line cursor past
+// the line's end (`state.line = curline + 1`) — so in `$$x^2$$ is the area.`
+// everything after the closing `$$` was dropped. Not escaped, not shown as
+// text: never handed to any rule at all (#40).
+//
+// The narrowing is what VS Code's preview does. Its block rule declines unless
+// the closing `$$` ends the line, and the line then goes to the inline `$$…$$`
+// rule, which keeps the text. That is the split these two now follow: the block
+// rule owns a line that is only maths, the inline rule owns everything else.
+//
+// Appending to the shipped pattern rather than restating it, so the one thing
+// that differs is the requirement and the rest of the expression cannot drift.
+// Same shape as the `$…$` narrowing above: the rule is replaced through
+// texmath's own factory, with everything but the regexp taken from the rule
+// texmath registered.
+try {
+  const dollarsBlock = texmath.rules.dollars?.block;
+  if (!dollarsBlock || dollarsBlock.length === 0) {
+    throw new Error('texmath carries no `$$…$$` block rules for dollars');
+  }
+  for (const rule of dollarsBlock) {
+    md.block.ruler.at(
+      rule.name,
+      texmath.block({
+        ...rule,
+        rex: new RegExp(rule.rex.source + '[ \\t]*$', rule.rex.flags),
+      })
+    );
+  }
+} catch (err) {
+  log.error('failed to require the `$$…$$` closer to end its line; a formula may swallow the text after it', err);
+}
 try {
   md.use(markdownItSup); // ^2^
 } catch (err) {
