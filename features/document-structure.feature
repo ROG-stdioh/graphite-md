@@ -210,3 +210,83 @@ Feature: Reading a document
     When the preview renders it
     Then no two elements share an id
     Then the outline lists 2 diagrams
+
+  # ---- front matter --------------------------------------------------------
+  # `---` at the top of the file is front matter to every tool that reads these
+  # documents — Jekyll, Hugo, VS Code's own Markdown preview, GitHub's
+  # rendering of a README. graphite.md rendered it as a rule, the YAML as a
+  # heading, and another rule.
+  #
+  # What it must never do is hide the document with it. A block that runs from
+  # the first line to the end of the file because nothing closed it looks
+  # exactly like a block that worked, and it is why the absent assertions below
+  # are never alone: each one sits beside what did render.
+
+  Scenario: Front matter is not rendered
+    Given a markdown document:
+      """
+      ---
+      title: Shard Rebalancing
+      tags: [storage, replication]
+      ---
+
+      # Title
+
+      Body text.
+      """
+    When the preview renders it
+    Then the document title is "Title"
+    Then the preview shows the text "Body text."
+    Then the preview does not show "title: Shard Rebalancing"
+    Then the preview does not show "tags: [storage, replication]"
+
+  Scenario: Front matter does not take the document with it
+    Given a markdown document:
+      """
+      ---
+      title: Shard Rebalancing
+      ---
+      # Title
+
+      ## Summary
+
+      Body text.
+      """
+    When the preview renders it
+    Then the document title is "Title"
+    Then the outline reads:
+      | section | depth |
+      | Summary | 0     |
+
+  # Only the very top of the file. A blockquote's content is tokenized against
+  # the same state as the rest of the document with the `>` markers already
+  # stripped, so a rule on the first line of a quote reaches this rule looking
+  # exactly like a fence at line 0 — and a quote that opens and closes with one
+  # would have its middle quietly eaten.
+  Scenario: A rule inside a blockquote is not front matter
+    Given a markdown document:
+      """
+      > ---
+      > A quoted line.
+      > ---
+      >
+      > Quoted text.
+
+      Body text.
+      """
+    When the preview renders it
+    Then the preview shows the text "A quoted line."
+    Then the preview shows the text "Quoted text."
+    Then the preview shows the text "Body text."
+
+  # The other direction: a rule that never closes is a rule. Reading to the end
+  # of the file for a delimiter that is not there would silently delete the
+  # document, and this is the scenario that says so.
+  Scenario: A rule that is never closed is still a rule
+    Given a markdown document:
+      """
+      ---
+      Just a document that opens with a rule.
+      """
+    When the preview renders it
+    Then the preview shows the text "Just a document that opens with a rule."

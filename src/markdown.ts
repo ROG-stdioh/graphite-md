@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import type { Token } from 'markdown-it';
+import type { StateBlock, Token } from 'markdown-it';
 // The six plugins below ship no types of their own. Their shapes are declared
 // in src/types/markdown-it-plugins.d.ts, read from the installed packages —
 // which is why there is no suppression directive on any of these lines.
@@ -145,6 +145,69 @@ try {
 } catch (err) {
   log.error('failed to register markdown-it-footnote, footnotes will be disabled', err);
 }
+
+// ---- front matter: read and dropped -----------------------------------------
+// `---`, the YAML, `---`, at the very top of the file: front matter to every
+// tool that reads these documents — Jekyll, Hugo, GitHub's README rendering,
+// VS Code's own Markdown preview — and this renderer did not know it existed.
+// The opening fence became an `<hr>`, the YAML became a paragraph or a heading,
+// and because a line of text followed by `---` is a *setext heading*, the first
+// key usually arrived as a section: a document's metadata appeared in its
+// outline.
+//
+// A block rule, where every other rewrite in this file is a renderer override.
+// A renderer rule can only change how a token is written, so "write nothing" is
+// a promise each of them keeps separately and any one of them can break; a
+// block rule consumes the lines before a token exists, which takes the block
+// out of the parse rather than out of the output. It is also what keeps every
+// line below it pointing where it did — the `data-line` a task checkbox carries
+// is a position in this source, and the lines are counted rather than removed.
+//
+// `---` only. markdown-it ships no front-matter rule, and the plugin that does
+// this is a third runtime dependency for twenty lines. `+++` and `{` are not
+// accepted here because the preview this extension is measured against does not
+// accept them either.
+const FRONT_MATTER_FENCE = /^---[ \t]*$/;
+
+/** One line of the source, newline excluded. */
+function lineAt(state: StateBlock, line: number): string {
+  const start = state.bMarks[line] ?? 0;
+  return state.src.slice(start, state.eMarks[line] ?? start);
+}
+
+function frontMatter(state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean {
+  // The first line of the document, at the left margin. A `---` anywhere else is
+  // a thematic break, including one inside a blockquote or a list item — those
+  // are tokenized against this same state with absolute line numbers, so a fence
+  // written in one of them is never at line 0.
+  //
+  // The left margin is Jekyll's and GitHub's rule, both of which anchor the
+  // fence to the start of the file. An indented `---` is therefore left alone,
+  // which is the direction to err in: the cost is a rule rendered as a rule, and
+  // the cost of the other mistake is a document's opening hidden from the reader.
+  // `parentType` is the load-bearing half. A blockquote strips its own `>`
+  // markers by rewriting this very state's line offsets, then tokenizes its
+  // content from line 0 of the same state — so a quote whose first line is `---`
+  // arrives here as a fence at line 0 of the document. The type is what is left
+  // of the distinction: it is 'root' for a document and 'blockquote'/'list' for
+  // everything tokenized inside one.
+  if (startLine !== 0 || state.parentType !== 'root' || state.tShift[startLine] !== 0) return false;
+  if (!FRONT_MATTER_FENCE.test(lineAt(state, startLine))) return false;
+
+  for (let line = startLine + 1; line < endLine; line++) {
+    if (!FRONT_MATTER_FENCE.test(lineAt(state, line))) continue;
+    if (silent) return true;
+    // Consumed through the closing fence, and no token pushed for any of it.
+    state.line = line + 1;
+    return true;
+  }
+  // A fence that never closes is not front matter. Reading on to the end of the
+  // file for a delimiter that is not there would delete the document, and a
+  // document that opens with a thematic break is an ordinary document.
+  return false;
+}
+
+md.block.ruler.before('hr', 'front_matter', frontMatter);
 
 // ---- blockquote -> .callout -------------------------------------------------
 md.renderer.rules.blockquote_open = () => `<blockquote class="callout">`;

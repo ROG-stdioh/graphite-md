@@ -58,6 +58,32 @@ function textOfClass(html: string, className: string): string | null {
   return first ? textOf(first).trim() : null;
 }
 
+// The page's text as a reader would select it: every element's own text, entities
+// decoded, markup gone. For a scenario that quotes a sentence rather than naming
+// the element the sentence is wrapped in — which is the only way to ask whether
+// something is on the page at all without also pinning how the renderer chose to
+// wrap it.
+Then<PreviewWorld>('the preview shows the text {string}', function (expected: string) {
+  const text = textOf(parseHtml(this.html));
+  assert.ok(
+    text.includes(expected),
+    `expected the page to contain ${JSON.stringify(expected)}; its text reads ` + JSON.stringify(text)
+  );
+});
+
+// The negative, and it is never evidence on its own: a page that rendered
+// nothing at all satisfies it. Every scenario that uses this pairs it with
+// something that did render, so "absent" cannot be reached by "empty" — the
+// front-matter block is the case that needs it, since it is about a block that
+// has to disappear without taking the document with it.
+Then<PreviewWorld>('the preview does not show {string}', function (unwanted: string) {
+  const text = textOf(parseHtml(this.html));
+  assert.ok(
+    !text.includes(unwanted),
+    `expected the page not to contain ${JSON.stringify(unwanted)}; its text reads ` + JSON.stringify(text)
+  );
+});
+
 Then<PreviewWorld>('the document title is {string}', function (expected: string) {
   const title = textOfClass(this.html, 'doc-title');
   assert.ok(title !== null, 'the preview rendered no document title');
