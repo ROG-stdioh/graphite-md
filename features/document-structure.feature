@@ -154,6 +154,103 @@ Feature: Reading a document
       | beta   |
       | gamma  |
 
+  # Letters outside ASCII are part of a heading's name, and the anchor is the
+  # name. Stripping them is silent in both directions: a link written for
+  # GitHub (`#café`) resolves to nothing here, and a headline in a script the
+  # rule cannot spell collapses to the fallback — `#section`, `#section-1` — so
+  # a reader of a Japanese document has no linkable name for anything.
+
+  Scenario: Letters outside ASCII are kept in the anchor
+    Given a markdown document:
+      """
+      # Title
+
+      ## Café
+
+      ## Über
+
+      ## 日本語
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | café   |
+      | über   |
+      | 日本語 |
+
+  # Half a letter is not a letter. Devanagari and the other Indic scripts write
+  # their vowels as combining marks that follow the consonant they belong to, so
+  # a rule that keeps letters and drops marks does not shorten this word, it
+  # misspells it.
+  Scenario: Combining marks are part of the letter they belong to
+    Given a markdown document:
+      """
+      # Title
+
+      ## हिन्दी
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | हिन्दी  |
+
+  Scenario: A repeated heading keeps its own name when the name is not ASCII
+    Given a markdown document:
+      """
+      # Title
+
+      ## 日本語
+
+      ## 日本語
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor   |
+      | 日本語   |
+      | 日本語-1 |
+
+  # The other half of that rule, and the reason it is written as "what survives"
+  # rather than "what goes": punctuation is still dropped, and GitHub's slug does
+  # the same with it.
+  Scenario: Punctuation and the underscore
+    Given a markdown document:
+      """
+      # Title
+
+      ## C++
+
+      ## What's new?
+
+      ## A, B, and C
+
+      ## foo_bar
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor    |
+      | c         |
+      | whats-new |
+      | a-b-and-c |
+      | foo_bar   |
+
+  # Not every heading has a name. `## !!!` has none in any rule, and the
+  # fallback is ours — GitHub has no equivalent — so it is pinned here with the
+  # duplicate rule that has to keep working underneath it.
+  Scenario: A heading with nothing to keep still gets an anchor of its own
+    Given a markdown document:
+      """
+      # Title
+
+      ## !!!
+
+      ## ???
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor    |
+      | section   |
+      | section-1 |
+
   # The ids a render hands out come from two directions. A section body is its
   # heading's slug behind a `body-` prefix and an anchor is the bare slug, while
   # `table-1` and `diagram-1` come off a counter — so `## Body Text` is in line

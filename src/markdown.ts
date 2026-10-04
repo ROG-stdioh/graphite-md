@@ -491,10 +491,35 @@ function applyTaskLists(tokens: Token[]): void {
   }
 }
 
+/**
+ * A heading's anchor: its text, lower-cased, as a URL fragment.
+ *
+ * The rule is GitHub's, because that is the anchor every author writes and the
+ * one a link copied out of GitHub's own rendering carries. Letters, numbers and
+ * combining marks of any script survive; punctuation and the whitespace that
+ * separates words do not; `-` and `_` are kept, since they are part of a name
+ * that reads as one — `#foo_bar` is what GitHub produces for `## foo_bar`, and
+ * dropping the underscore silently renames the heading.
+ *
+ * The previous rule kept `[a-z0-9]` alone, which is the same thing only for
+ * ASCII. It deleted `é` from `Café` and every character of `日本語`, so a
+ * heading in a non-Latin script landed on the `section` fallback below and a
+ * link written as `#café` resolved to nothing.
+ *
+ * `\p{M}` is not decoration: Devanagari and the other Indic scripts write
+ * vowels as combining marks, so a class without them mangles the word rather
+ * than merely shortening it.
+ *
+ * The fallback and the duplicate counter are ours — GitHub has neither, and
+ * both are needed here. A heading that is all punctuation exists, and an empty
+ * id is a heading nothing can link to; two headings with the same text are two
+ * elements, and an id shared between them is the silent misdirection
+ * `claimId` prevents.
+ */
 function slugify(text: string, seen: Map<string, number>): string {
   let base = text
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '')
     .trim()
     .replace(/\s+/g, '-');
   if (!base) base = 'section';
