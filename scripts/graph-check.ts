@@ -72,7 +72,7 @@ interface StubEl {
   title: string;
   innerHTML: string;
   _html?: string;
-  offsetParent: unknown; // truthy == visible
+  offsetParent: unknown; // truthy == visible — an accessor, see makeEl
   offsetTop: number;
   offsetHeight: number;
   scrollHeight: number;
@@ -80,6 +80,12 @@ interface StubEl {
   clientHeight: number;
   clientWidth: number;
   _listeners: Record<string, StubHandler[]>;
+  /** The element this one was appended to. Nothing else holds the tree
+   *  together — the double walks it for `offsetParent`, below. */
+  parentEl: StubEl | null;
+  /** Set by assigning null to `offsetParent`: this element alone has no box,
+   *  whatever its ancestors say. */
+  _detached?: boolean;
   addEventListener(type: string, fn: StubHandler): void;
   appendChild<T extends StubEl>(c: T): T;
   insertBefore<T extends StubEl>(c: T): T;
@@ -90,6 +96,11 @@ interface StubEl {
   classList: StubClassList;
   getBoundingClientRect(): { top: number };
   closest(sel: string): StubEl | null;
+}
+
+/** Whether an element is display:none — folded away, or detached on purpose. */
+function hasNoBox(el: StubEl): boolean {
+  return el._detached === true || el.classList.contains('collapsed');
 }
 
 function makeEl(tag: string): StubEl {
@@ -108,7 +119,23 @@ function makeEl(tag: string): StubEl {
     title: '',
     get innerHTML(): string { return this._html ?? ''; },
     set innerHTML(v: string) { this._html = v; if (v === '') this.children = []; },
-    offsetParent: {}, // visible
+    // A real `offsetParent` is null for a `display:none` element and for
+    // anything inside one, and `collapsed` is how this page hides an accordion
+    // body. Modelled rather than assumed visible, because `drawGraph` reads
+    // exactly that null to tell a graph inside a folded section — legitimately
+    // empty — from a graph whose rows are somewhere else, which it reports. A
+    // double that handed back a box for everything could not tell those apart
+    // either, and the two accordion views the page starts folded would look
+    // drawn while nothing had drawn them.
+    get offsetParent(): unknown {
+      if (hasNoBox(this)) return null;
+      for (let ancestor = this.parentEl; ancestor; ancestor = ancestor.parentEl) {
+        if (hasNoBox(ancestor)) return null;
+      }
+      return {};
+    },
+    set offsetParent(v: unknown) { this._detached = v === null; },
+    parentEl: null,
     offsetTop: 0,
     offsetHeight: 32,
     scrollHeight: 0,
@@ -123,8 +150,8 @@ function makeEl(tag: string): StubEl {
     addEventListener(type: string, fn: StubHandler) {
       (this._listeners[type] ??= []).push(fn);
     },
-    appendChild<T extends StubEl>(c: T): T { this.children.push(c); return c; },
-    insertBefore<T extends StubEl>(c: T): T { this.children.unshift(c); return c; },
+    appendChild<T extends StubEl>(c: T): T { c.parentEl = this; this.children.push(c); return c; },
+    insertBefore<T extends StubEl>(c: T): T { c.parentEl = this; this.children.unshift(c); return c; },
     setAttribute(k: string, v: unknown) { this.attrs[k] = String(v); },
     getAttribute(k: string): string | undefined { return this.attrs[k]; },
     querySelector(sel: string): StubEl | null {
@@ -169,6 +196,22 @@ interface StubTocNode {
   children?: StubTocNode[];
 }
 
+// The other two outline views. Flat, because that is the shape the renderer
+// builds them in — a table or a diagram is a place in the document, not a
+// heading with anything under it — and non-empty, because a graph built from an
+// empty list draws nothing whether or not it works. Both of these were `[]`
+// until now, so the Tables and Diagrams views were assembled from nothing:
+// clicking either accordion header ran a draw that had nothing to draw, and a
+// graph that drew no edges was indistinguishable from one that never drew.
+const tablesTree: StubTocNode[] = [
+  { label: 'Totals', target: 'table-1' },
+  { label: 'Comparison', target: 'table-2' },
+];
+const diagramsTree: StubTocNode[] = [
+  { label: 'Flow', target: 'diagram-1' },
+  { label: 'Sequence', target: 'diagram-2' },
+];
+
 /** The ids `run` always creates, so the tests can reach them without a lookup
  *  that `noUncheckedIndexedAccess` would make nullable. */
 type StubId = 'graphContent' | 'graphTables' | 'graphDiagrams' | 'contentPane' | 'contentInner';
@@ -193,9 +236,35 @@ interface Harness {
   byId: Record<string, StubEl> & Record<StubId, StubEl>;
   flushAll(): void;
   posted: Record<string, unknown>[];
-  state: Record<string, unknown>;
+  /** The store the host holds, as of right now — a getter, because a save
+   *  replaces the object rather than writing into it. */
+  readonly state: Record<string, unknown>;
   winHandlers: Record<string, StubHandler[]>;
   accordionByView: Record<string, StubEl>;
+}
+
+/** The rows a graph container holds. */
+function rowsIn(container: StubEl): StubEl[] {
+  return container.children.filter((c) => c.className.includes('toc-row'));
+}
+
+/** A graph container's svg, which buildGraph appends before anything else. */
+function swapIn(container: StubEl): StubEl | undefined {
+  return container.children.find((c) => c.tag === 'svg');
+}
+
+/** What a graph has actually drawn. Read when it is asked for rather than
+ *  captured once, because only the Content graph is drawn at init — the other
+ *  two are drawn when their accordion opens. */
+function drawnIn(container: StubEl): DrawnEdge[] {
+  return (swapIn(container)?.children ?? []).map((e): DrawnEdge => ({
+    line: e.tag === 'line'
+      ? { x1: e.attrs.x1 ?? '', y1: e.attrs.y1 ?? '', x2: e.attrs.x2 ?? '', y2: e.attrs.y2 ?? '' }
+      : null,
+    path: e.tag === 'path' ? (e.attrs.d ?? null) : null,
+    stroke: e.attrs.stroke,
+    opacity: e.attrs.opacity,
+  }));
 }
 
 // builds fresh stubs, runs preview.js, lays out rows, and returns the
@@ -215,14 +284,33 @@ function run(
     /** Report no layout box for every row, which is what a stale reference to a
      *  previous build's rows looks like from inside drawGraph. */
     detachRows?: boolean;
+    /** What each outline view is built from. Overridable so a test can hand one
+     *  view an empty list on purpose — which is how a document with no diagrams
+     *  is modelled, and it is not the same page as one whose diagrams are
+     *  there. */
+    tables?: StubTocNode[];
+    diagrams?: StubTocNode[];
   } = {}
 ): Harness {
   // Populated from STUB_IDS below, so the cast states what the loop
   // guarantees: every id in that list is present by the time this returns.
   const byId = {} as Record<string, StubEl> & Record<StubId, StubEl>;
+  // The classes the real markup carries, taken from webviewHtml.ts: all three
+  // containers are `.graph`, and the two below Content start folded. The double
+  // created them bare, so it modelled a page that does not exist — and since
+  // `collapsed` is what hides a body, a view that starts folded looked identical
+  // to one that had been opened.
+  const containerClasses: Record<StubId, readonly string[]> = {
+    graphContent: ['graph'],
+    graphTables: ['graph', 'collapsed'],
+    graphDiagrams: ['graph', 'collapsed'],
+    contentPane: [],
+    contentInner: [],
+  };
   for (const id of STUB_IDS) {
     const el = makeEl('div');
     el.id = id;
+    containerClasses[id].forEach((cls) => { el.classList.add(cls); });
     byId[id] = el;
   }
   // Added before the bundle runs, not after, because the page looks its own
@@ -285,7 +373,11 @@ function run(
     // default and the failure branch an explicit case rather than a side effect
     // of the harness not having a mermaid.
     mermaid: opts.mermaid,
-    __PREVIEW_DATA__: { headings: tree, tables: [], diagrams: [] } as {
+    __PREVIEW_DATA__: {
+      headings: tree,
+      tables: opts.tables ?? tablesTree,
+      diagrams: opts.diagrams ?? diagramsTree,
+    } as {
       headings: StubTocNode[];
       tables: StubTocNode[];
       diagrams: StubTocNode[];
@@ -299,10 +391,17 @@ function run(
   // were no-ops, so the entire host contract and the scroll restore were
   // unassertable while appearing to be wired up.
   const posted: Record<string, unknown>[] = [];
-  const state: Record<string, unknown> = Object.assign({}, opts.state ?? {});
+  // Assigned, not merged into: the host's `setState` replaces what it holds, so
+  // a double that merged was more forgiving than the real thing. What that hid
+  // is the failure worth catching — a `persistState()` that stopped writing a
+  // field would leave the previous value sitting in the store and the feature
+  // would appear to survive a re-render while never being saved at all, and no
+  // test run against a merging double can tell those apart.
+  let state: Record<string, unknown> = Object.assign({}, opts.state ?? {});
   const acquireVsCodeApi = () => ({
+    // Reads the binding rather than a captured object, for the same reason.
     getState: () => state,
-    setState: (s: Record<string, unknown>) => Object.assign(state, s),
+    setState: (s: Record<string, unknown>) => { state = s; },
     postMessage: (m: Record<string, unknown>) => posted.push(m),
   });
   const getComputedStyle = () => ({ getPropertyValue: (v: string) => (v === '--border-strong' ? '#000' : v === '--accent' ? '#f00' : '') });
@@ -325,29 +424,35 @@ function run(
   fn(window, document, requestAnimationFrame, performance, acquireVsCodeApi, getComputedStyle);
 
   const graph = byId.graphContent;
-  const rows = graph.children.filter((c) => c.className && c.className.includes('toc-row'));
-  rows.forEach((r, i) => { r.offsetTop = i * 32; r.offsetHeight = 32; });
-  graph.scrollHeight = rows.length * 32;
+  const rows = rowsIn(graph);
+  // All three graphs, not just the one that draws at init: Tables and Diagrams
+  // are drawn when their accordion opens, and a graph whose rows have no
+  // geometry draws nothing — so leaving them unlaid-out would have made every
+  // assertion about them pass for the wrong reason.
+  for (const id of ['graphContent', 'graphTables', 'graphDiagrams'] as const) {
+    const container = byId[id];
+    const inGraph = rowsIn(container);
+    inGraph.forEach((r, i) => { r.offsetTop = i * 32; r.offsetHeight = 32; });
+    container.scrollHeight = inGraph.length * 32;
+  }
   // Before the init frame, because that is when drawGraph reads it.
   if (opts.detachRows) rows.forEach((r) => { r.offsetParent = null; });
   rafQueue.splice(0).forEach((cb) => { cb(); }); // init rAF: drawGraph + onScroll
 
-  const svg = graph.children.find((c) => c.tag === 'svg');
+  const svg = swapIn(graph);
   if (!svg) throw new Error('the webview drew no <svg> for the outline');
-  const drawn = svg.children.map((e): DrawnEdge => ({
-    line: e.tag === 'line'
-      ? { x1: e.attrs.x1 ?? '', y1: e.attrs.y1 ?? '', x2: e.attrs.x2 ?? '', y2: e.attrs.y2 ?? '' }
-      : null,
-    path: e.tag === 'path' ? (e.attrs.d ?? null) : null,
-    stroke: e.attrs.stroke,
-    opacity: e.attrs.opacity,
-  }));
+  const drawn = drawnIn(graph);
   const flushAll = () => {
     for (let i = 0; i < 40 && rafQueue.length; i++) {
       rafQueue.splice(0).forEach((cb) => { cb(); });
     }
   };
-  return { rows, svg, drawn, document, handlers, byId, flushAll, posted, state, winHandlers, accordionByView };
+  return {
+    rows, svg, drawn, document, handlers, byId, flushAll, posted, winHandlers, accordionByView,
+    // A getter, because `setState` replaces the stored object: a field holding
+    // the first one would keep reporting the state the page started with.
+    get state(): Record<string, unknown> { return state; },
+  };
 }
 
 const rowLabel = (r: StubEl): string => r.children.find((c) => c.className === 'label')?.textContent ?? '';
@@ -518,6 +623,28 @@ check('a handled heading anchor never reaches the window',
 function fireClickOn(target: Harness, el: StubEl): ClickEvent {
   return clickEvent(el, target);
 }
+
+// Two ways of reading `posted`, and the reason both exist is that the page
+// speaks before anything is clicked: the double hands the webview a document
+// with diagrams and no mermaid — the vendored script failing to load — and the
+// page warns about it while the script is still evaluating. So a count taken
+// from zero would be counting that warning as if a click had caused it, and
+// every block below would drift the moment the fixture changed.
+
+/** The messages a click added, given the count taken before it. */
+function postedSince(harness: Harness, before: number): Record<string, unknown>[] {
+  return harness.posted.slice(before);
+}
+
+/** The page's own log messages, as text — the shape the host routes. */
+function postedLogs(harness: Harness): { level: unknown; message: string }[] {
+  const logs: { level: unknown; message: string }[] = [];
+  for (const m of harness.posted) {
+    if (m.type === 'log' && typeof m.message === 'string') logs.push({ level: m.level, message: m.message });
+  }
+  return logs;
+}
+
 // Guarded so a missing message reports FAIL instead of throwing and taking
 // the rest of the run down with it.
 function sendCheckbox(target: Harness, line: number | undefined, checked: boolean): StubEl {
@@ -532,12 +659,15 @@ function sendCheckbox(target: Harness, line: number | undefined, checked: boolea
 
 // ---- checklist click -> toggleTask ----
 const cl = run('');
-const msg = (i: number): Record<string, unknown> => cl.posted[i] ?? {};
+// Taken before the click, so what the page said while loading is not counted
+// as something the click said — see postedSince.
+const clLoad = cl.posted.length;
+const msg = (i: number): Record<string, unknown> => postedSince(cl, clLoad)[i] ?? {};
 const box = sendCheckbox(cl, 12, false);
 check('checking a box posts toggleTask', msg(0).type === 'toggleTask' && msg(0).line === 12 && msg(0).checked === true);
 check('toggleTask line is a number, not the dataset string', typeof msg(0).line === 'number');
 check('checking a box flips it optimistically', box.classList.contains('checked'));
-check('exactly one message per click', cl.posted.length === 1);
+check('exactly one message per click', postedSince(cl, clLoad).length === 1);
 
 // A fresh element each call, so the assertion has to read from this one —
 // the box from the first click is a different object with its own classList.
@@ -556,25 +686,28 @@ function makeLink(href: string): StubEl {
   return a;
 }
 const lk = run('');
+const lkLoad = lk.posted.length;
 const lkWindow = watchWindow(lk);
 const linkEv = fireClickOn(lk, makeLink('setup.md'));
 // Destructured once so the two clauses below are checks on the same value
 // rather than two index reads the checker has to relate to each other.
-const [linkMsg] = lk.posted;
+const [linkMsg] = postedSince(lk, lkLoad);
 check('a relative link is handed to the host',
-  lk.posted.length === 1 && linkMsg?.type === 'openLink' && linkMsg.href === 'setup.md');
+  postedSince(lk, lkLoad).length === 1 && linkMsg?.type === 'openLink' && linkMsg.href === 'setup.md');
 check('a relative link click is intercepted', linkEv.prevented);
 // The bug this replaced: VS Code opened the URI from its own handler at the
 // same time as the host did, so one click on an external link opened two tabs.
 check('a handled link click never reaches the window', lkWindow() === 0);
 
 const lk2 = run('');
+const lk2Load = lk2.posted.length;
 fireClickOn(lk2, makeLink('#fnref1'));
-check('an in-page anchor is not sent to the host', lk2.posted.length === 0);
+check('an in-page anchor is not sent to the host', postedSince(lk2, lk2Load).length === 0);
 
 const lk3 = run('');
+const lk3Load = lk3.posted.length;
 fireClickOn(lk3, makeLink(''));
-check('an empty href posts nothing', lk3.posted.length === 0);
+check('an empty href posts nothing', postedSince(lk3, lk3Load).length === 0);
 
 // ---- accordion: at most one section open ----
 const ac = run('');
@@ -602,6 +735,66 @@ clickAccordion(ac, 'diagrams');
 check('clicking the open section closes it',
   ac.accordionByView.diagrams?.classList.contains('expanded') === false
   && ac.byId.graphDiagrams.classList.contains('collapsed'));
+
+// ---- the other two views draw on demand, and are worth looking at ----
+// Only the Content graph is drawn by the init frame; Tables and Diagrams are
+// drawn from inside expandSection, so whether they show anything is decided by
+// a click. Both were built from `[]` until the fixtures above, which meant a
+// click on either header ran a draw over an empty container: a graph that drew
+// nothing and one that never ran were indistinguishable, which is the one thing
+// a test of them cannot be.
+//
+// Both trees are flat, so the only edge either graph can draw is the trunk line
+// between its first two rows — at the trunk's x, from the first row's centre to
+// the second's. Asserted as a shape rather than a count, so a graph that drew
+// the right number of the wrong lines still fails. Row i is centred at
+// i * 32 + 16; see the layout in run.
+//
+// Worth knowing before reading the first check: buildGraph draws its own graph
+// once before returning, so both of these have already run a draw by the time a
+// test holds them. What leaves the folded two empty is not that nothing drew —
+// it is that their rows sit inside a `display:none` section and so have no
+// layout box to be placed by. A draw that finds nothing to place, in a container
+// that is itself hidden, is the state the page is in when the reader opens it.
+const isFirstTrunkLine = (e: DrawnEdge): boolean =>
+  e.line !== null && e.line.x1 === '14' && e.line.x2 === '14' && e.line.y1 === '16' && e.line.y2 === '48';
+
+const tv = run('');
+check('the Tables graph draws nothing while its section is folded',
+  drawnIn(tv.byId.graphTables).length === 0);
+clickAccordion(tv, 'tables');
+check('opening the Tables section draws its graph',
+  rowsIn(tv.byId.graphTables).length === tablesTree.length);
+check('...as a trunk line from the first row to the second',
+  drawnIn(tv.byId.graphTables).some(isFirstTrunkLine));
+
+const dv = run('');
+check('the Diagrams graph draws nothing while its section is folded',
+  drawnIn(dv.byId.graphDiagrams).length === 0);
+clickAccordion(dv, 'diagrams');
+check('opening the Diagrams section draws its graph',
+  rowsIn(dv.byId.graphDiagrams).length === diagramsTree.length);
+check('...as a trunk line from the first row to the second',
+  drawnIn(dv.byId.graphDiagrams).some(isFirstTrunkLine));
+
+// The window resize handler redraws all three graphs, open or not — and the two
+// folded ones are the case `drawGraph`'s own early return exists for: their rows
+// have no layout box because they are inside a `display:none` section, which is
+// not the same as rows that are missing, and only the container's visibility
+// tells those apart. A graph that got this wrong would either draw an outline
+// inside a folded section or report its own rows as lost, and both are visible
+// from here.
+const rz = run('');
+const rzSvg = swapIn(rz.byId.graphContent);
+if (!rzSvg) throw new Error('the webview drew no <svg> for the outline');
+rzSvg.innerHTML = ''; // emptied, so only a redraw can fill it again
+(rz.winHandlers.resize ?? []).forEach((h) => { h(); });
+rz.flushAll();
+check('a resize redraws the open graph', drawnIn(rz.byId.graphContent).length > 0);
+check('...and draws nothing into the folded ones',
+  drawnIn(rz.byId.graphTables).length === 0 && drawnIn(rz.byId.graphDiagrams).length === 0);
+check('...without calling their folded rows lost',
+  !postedLogs(rz).some((m) => m.message.includes('outline')));
 
 // ---- contentWidth message -> CSS variable ----
 const cw = run('');
@@ -638,11 +831,19 @@ check('a value above the contributed range clamps down',
   resolveContentWidth(500, FALLBACK) === CONTENT_WIDTH_MAX);
 
 // ---- scroll position survives a re-render ----
-const s1 = run('');
+const s1 = run('', { state: { scrollTop: 0, collapsed: [], 'stale-field': 'from an older build' } });
+check('the store holds what the previous render left', 'stale-field' in s1.state);
 s1.byId.contentPane.scrollTop = 250;
 (s1.byId.contentPane._listeners.scroll ?? []).forEach((fn) => { fn(); });
 s1.flushAll(); // the save is deferred to a rAF
 check('scrolling stashes the position in webview state', s1.state.scrollTop === 250);
+// And the save replaces the store rather than writing into it, which is what
+// `vscode.setState` does in a real webview. That is the whole reason the field
+// above exists: a persistState() that stopped writing a field would leave the
+// previous value in the store, so the feature would look like it survived a
+// re-render while never being saved — and against a merging double there is no
+// way to tell that apart from its having been saved.
+check('a save replaces the store rather than merging into it', !('stale-field' in s1.state));
 
 const s2 = run('', { state: { scrollTop: 250 } });
 check('a re-render restores the stashed scroll position', s2.byId.contentPane.scrollTop === 250);
@@ -717,15 +918,36 @@ check(
 // The container's own visibility is what separates that from a graph inside a
 // folded accordion section, which is legitimately empty.
 const detached = run('', { detachRows: true });
-const warned = detached.posted.find((m) => m.type === 'log');
+// Found by what it names rather than by being the only log in the list: the
+// page posts a warning of its own while loading (below), so the first log is
+// not the outline's.
+const warned = postedLogs(detached).find((m) => m.message.includes('outline'));
 check('an outline that laid out none of its rows says so', warned !== undefined && warned.level === 'warn');
-check(
-  '...naming how many rows it could not place',
-  typeof warned?.message === 'string' && warned.message.includes('7')
-);
+check('...naming how many rows it could not place', warned?.message.includes('7') === true);
 // The other half: a graph that drew itself is silent. Without this the check
-// above would pass for a webview that warned on every draw.
-check('...and an outline that drew itself posts nothing at all', base.posted.length === 0);
+// above would pass for a webview that warned on every draw. Scoped to the
+// outline for the same reason the find above is.
+check('...and an outline that drew itself warns about nothing',
+  !postedLogs(base).some((m) => m.message.includes('outline')));
+
+// ---- a document whose diagrams cannot be drawn says so ----
+// Unreachable until the double stopped handing the webview `diagrams: []`: the
+// webview warns only when it was given diagrams it has no mermaid to draw, so a
+// graph built from an empty list could never reach this branch — the warning was
+// not merely unasserted, it never ran.
+//
+// This is also what the message counts above are measured from rather than
+// assuming zero, and the page it describes is the ordinary failure: the vendored
+// script is what failed to load, and the document is perfectly fine.
+const missingMermaid = postedLogs(base).find((m) => m.message.includes('mermaid'));
+check('a document with diagrams and no mermaid warns', missingMermaid?.level === 'warn');
+check('...saying how many diagrams will not be drawn',
+  missingMermaid?.message.includes(`${diagramsTree.length}`) === true);
+// The control: the warning is about the diagrams and not about every page. A
+// document with none loads silently, which is what keeps the assertion above
+// from passing for a webview that always warns.
+check('a document with no diagrams loads without a word',
+  run('', { diagrams: [] }).posted.length === 0);
 
 // ---- a diagram that fails to render -> the host's Output Channel ----
 // mermaid rejects asynchronously and this file is synchronous from top to
