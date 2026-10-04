@@ -29,11 +29,12 @@ const ABSENT = 'none';
 // the page" and "the host was never asked to resolve anything" could both be
 // contradicted by a document that merely shows the markup it is talking about.
 
-/** Every `<img>` the preview emitted, as {src, alt}. */
-function imageTags(html: string): { src: string; alt: string }[] {
+/** Every `<img>` the preview emitted, as {src, alt, title}. */
+function imageTags(html: string): { src: string; alt: string; title: string }[] {
   return byTag(parseHtml(html), 'img').map((el) => ({
     src: attrOf(el, 'src') ?? '',
     alt: attrOf(el, 'alt') ?? '',
+    title: attrOf(el, 'title') ?? '',
   }));
 }
 
@@ -70,6 +71,21 @@ Then<PreviewWorld>('the image is loaded from {string}', function (expected: stri
   assert.ok(
     sources.includes(expected),
     `expected an image loaded from ${JSON.stringify(expected)}, got ${JSON.stringify(sources)}`
+  );
+});
+
+// The `title`, which no scenario asserted. It is the tooltip rather than the
+// description, so it is not the same claim as the alt text — and on the
+// Markdown route it arrives from the same `![]()` as the `src` the resolver is
+// handed, so a rewrite that reconstructed the tag from the resolver's answer
+// would drop it while leaving both the source and the alt exactly right.
+Then<PreviewWorld>('the image is captioned {string}', function (expected: string) {
+  const images = imageTags(this.html);
+  assert.ok(images.length > 0, 'no <img> reached the page at all');
+  assert.strictEqual(
+    images[0]?.title,
+    expected,
+    `the image is captioned ${JSON.stringify(images[0]?.title)}, expected ${JSON.stringify(expected)}`
   );
 });
 
