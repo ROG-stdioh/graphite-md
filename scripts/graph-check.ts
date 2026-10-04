@@ -1015,6 +1015,42 @@ check('contentWidth sets the reading-width variable', cw.document.body.style['--
 (cw.winHandlers.message ?? []).forEach((h) => { h({ data: { type: 'somethingElse' } }); });
 check('an unrelated message leaves the width alone', cw.document.body.style['--content-width'] === '80%');
 
+// ---- the palette command's toggleOutline message ----
+// The host cannot fold the pane: the state it would have to change lives on this
+// side of the wire, so all it can do is ask, and the page flips what it holds.
+// Three things follow from that design and all three are worth pinning — that
+// the ask arrives at all, that it is a flip rather than a write of one
+// direction (a host that sent the same message twice would otherwise fold twice
+// and never reopen), and that it runs the same bookkeeping the corner control
+// does, since a fold nobody clicked is exactly the case where the button's
+// announcement could drift out of step.
+const to = run('');
+const send = (h: Harness, data: unknown): void => {
+  (h.winHandlers.message ?? []).forEach((fn) => { fn({ data }); });
+};
+
+send(to, { type: 'toggleOutline' });
+check('the palette command folds the outline',
+  to.byId.tocPaneWrap.classList.contains('collapsed'));
+check('...the corner control turns with it',
+  to.byId.outlineToggle.getAttribute('aria-expanded') === 'false'
+  && to.byId.outlineToggle.getAttribute('aria-label') === 'Show the outline');
+// Through the field a re-render reads, because the announcement above is only
+// this page's memory of the fold: the state is what survives it.
+check('...and the fold reaches the state a re-render restores', to.state.outlineCollapsed === true);
+
+send(to, { type: 'toggleOutline' });
+check('a second command reopens it', !to.byId.tocPaneWrap.classList.contains('collapsed'));
+
+// The dispatch, not the handler: a message that is not this variant must not
+// reach the fold. The failure this pins is a catch-all — a `default:` that
+// treats anything unrecognised as a toggle — which is a thing a switch is
+// perfectly capable of being written as, and which would have the preview
+// folding whenever any future message arrived.
+send(to, { type: 'contentWidth', value: 50 });
+check('...and an unrelated message does not fold it',
+  !to.byId.tocPaneWrap.classList.contains('collapsed'));
+
 // ---- the host's defence against a hand-edited setting ----
 // extension.ts cannot be required outside a running VS Code, so the coercion it
 // uses lives in src/settings.ts and is exercised here rather than not at all.
@@ -1244,7 +1280,8 @@ check('a failed diagram posts nothing else', mermaidFail.posted.length === 1);
 //
 // protocol.ts is TypeScript and required directly. Node strips the types; it is
 // why the check scripts need Node 24, which is also what CI pins.
-const { isWebviewToHost } = require('../src/shared/protocol.ts') as typeof import('../src/shared/protocol');
+const { isWebviewToHost, isHostToWebview } =
+  require('../src/shared/protocol.ts') as typeof import('../src/shared/protocol');
 
 const sent = [...cl.posted, ...lk.posted, ...mermaidFail.posted];
 check('the webview posted messages to check', sent.length > 0);
@@ -1263,6 +1300,27 @@ check('the host guard rejects a log with no message',
 check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
 check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
 check('the host guard rejects null', !isWebviewToHost(null));
+
+// ---- the webview's guard must accept what the host actually sends ----
+// The same evidence as the block above, for the direction that had none. The
+// listener test further up drives the message handler directly, so a guard that
+// disagreed with the host would never show there: the message would be dropped
+// before the handler ran, and every DOM assertion would go on passing while the
+// palette command did nothing at all. The payload-less variant is the one at
+// risk — a checker written by analogy with contentWidth's would demand a field
+// the host does not send.
+check('the webview guard admits the payload-less toggleOutline the host sends',
+  isHostToWebview({ type: 'toggleOutline' }));
+check('...and the contentWidth the host sends',
+  isHostToWebview({ type: 'contentWidth', value: 60 }));
+// Both halves of an exact-match guard, again: a near miss must not be routed,
+// and a payload of the wrong type is no better than no payload.
+check('the webview guard rejects a near-miss tag',
+  !isHostToWebview({ type: 'toggleOutlines' }) && !isHostToWebview({ type: 'TOGGLEOUTLINE' }));
+check('the webview guard rejects a contentWidth whose value is not a number',
+  !isHostToWebview({ type: 'contentWidth', value: '60' }));
+check('the webview guard rejects a bare string', !isHostToWebview('toggleOutline'));
+check('the webview guard rejects null', !isHostToWebview(null));
 
 // ---- every id the webview looks up is one the page actually has ----
 // main.ts reaches its elements by id, and `byId` throws when one is missing —

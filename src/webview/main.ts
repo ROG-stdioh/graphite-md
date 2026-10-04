@@ -786,21 +786,27 @@ function onScroll(): void {
 }
 contentPane.addEventListener('scroll', onScroll);
 
-// ================= reading width — live sync if settings.json is edited
-//                    directly while the preview is open (no in-panel UI) =================
+// ================= messages from the host =================
+// Two of them today: the reading width, pushed live when settings.json is edited
+// directly under an open preview (there is no in-panel UI for it), and the
+// palette command's request to fold the outline.
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const message = event.data;
   if (!isHostToWebview(message)) return;
   // A switch rather than an `if`, for the same reason the host's handler is
   // one: switch-exhaustiveness-check fails the build when a variant is added to
-  // HostToWebview and not handled here. With a single variant that costs one
-  // always-true condition, which is what the rule below is objecting to — it is
-  // correct, and the check is kept anyway because it is the thing that will
-  // catch the second variant.
+  // HostToWebview and not handled here.
   switch (message.type) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- HostToWebview has one variant today; the switch is what makes adding a second a compile error
     case 'contentWidth':
       document.body.style.setProperty('--content-width', `${message.value}%`);
+      return;
+    // The palette route to the fold the corner button offers, and it goes
+    // through the same `setOutlineCollapsed` for that reason: the announcement,
+    // the persisted state and the redraw-on-reopen all live in there, and a
+    // second path that folded the pane without them would leave a button
+    // claiming the opposite of what the page is showing.
+    case 'toggleOutline':
+      setOutlineCollapsed(!outlineCollapsed);
       return;
   }
 });

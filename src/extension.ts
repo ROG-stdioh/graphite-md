@@ -245,6 +245,21 @@ export function activate(context: vscode.ExtensionContext) {
       openPreview(vscode.ViewColumn.Beside);
     }),
 
+    // The keyboard route to the fold the webview's corner control offers. The
+    // host asks and the page decides, because the folded state lives in the
+    // webview — see the variant's note in src/shared/protocol.ts. With no
+    // preview open there is nothing to ask, and the command is reachable in
+    // that state from the palette, so it says so in the log rather than looking
+    // broken.
+    vscode.commands.registerCommand('graphiteMd.toggleOutline', () => {
+      if (!currentPanel) {
+        log.debug('toggleOutline: no preview is open');
+        return;
+      }
+      const message: HostToWebview = { type: 'toggleOutline' };
+      currentPanel.webview.postMessage(message);
+    }),
+
     // The way in for a user who has not discovered the Output dropdown, or who
     // has it scrolled to some other channel. Deliberately outside the two
     // `editorLangId == markdown` restrictions above: whatever has gone wrong may
