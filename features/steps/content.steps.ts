@@ -85,6 +85,27 @@ Then<PreviewWorld>('the preview strikes through {string}', function (text: strin
   );
 });
 
+// Exact text, like the three above: the claim is which element holds it, and a
+// fenced block's own `<code>` holds the whole block rather than this span, so
+// an exact match reads the inline case without naming `pre > code`.
+Then<PreviewWorld>('the preview shows {string} as inline code', function (text: string) {
+  const held = heldBy(this.html, 'code');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in a <code>; the page's <code> elements hold ${JSON.stringify(held)}`
+  );
+});
+
+// ---- the typographer ------------------------------------------------------
+
+Given<PreviewWorld>('the typographer is on', function () {
+  this.typographer = true;
+});
+
+Given<PreviewWorld>('the typographer is off', function () {
+  this.typographer = false;
+});
+
 // ---- footnotes -----------------------------------------------------------
 
 Then<PreviewWorld>('the note is rendered at the foot of the page', function () {

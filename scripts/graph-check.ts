@@ -812,8 +812,15 @@ check('an unrelated message leaves the width alone', cw.document.body.style['--c
 //
 // src/settings.ts and src/shared/protocol.ts below use real `export` syntax, so
 // unlike esbuild.ts their module shape is something the compiler can read.
-const { resolveContentWidth, CONTENT_WIDTH_MIN, CONTENT_WIDTH_MAX } =
-  require('../src/settings.ts') as typeof import('../src/settings');
+const {
+  resolveContentWidth,
+  CONTENT_WIDTH_MIN,
+  CONTENT_WIDTH_MAX,
+  resolveRemoteImages,
+  REMOTE_IMAGES_DEFAULT,
+  resolveTypographer,
+  TYPOGRAPHER_DEFAULT,
+} = require('../src/settings.ts') as typeof import('../src/settings');
 
 const FALLBACK = 60;
 check('a real number passes through', resolveContentWidth(80, FALLBACK) === 80);
@@ -829,6 +836,33 @@ check('a value below the contributed range clamps up',
   resolveContentWidth(5, FALLBACK) === CONTENT_WIDTH_MIN);
 check('a value above the contributed range clamps down',
   resolveContentWidth(500, FALLBACK) === CONTENT_WIDTH_MAX);
+
+// The two boolean resolvers, on the same evidence and for the same reason.
+// `remoteImages` decides whether a document may reach the network and had no
+// check here at all; `typographer` is new, and a setting whose coercion is
+// untested is one that reads backwards the first time somebody hand-edits it.
+//
+// Every case is built so a wrong implementation cannot agree with it by
+// accident: the pass-throughs hand over a fallback that contradicts the value,
+// so an "always fall back" resolver fails them, and the strings are the ones
+// `Boolean()` gets backwards — `Boolean('false')` is `true`, which is the whole
+// reason these resolvers are strict `typeof` checks rather than a cast.
+check('remoteImages: a real boolean passes through', resolveRemoteImages(true, false));
+check('...and a false one does too', !resolveRemoteImages(false, true));
+check('remoteImages: the string "false" falls back rather than reading as true',
+  resolveRemoteImages('false', REMOTE_IMAGES_DEFAULT) === REMOTE_IMAGES_DEFAULT);
+check('remoteImages: a number that coerces falsy still falls back',
+  resolveRemoteImages(0, true));
+check('remoteImages: a missing setting falls back to the contributed default',
+  resolveRemoteImages(undefined, REMOTE_IMAGES_DEFAULT) === REMOTE_IMAGES_DEFAULT);
+check('typographer: a real boolean passes through', resolveTypographer(true, false));
+check('...and a false one does too', !resolveTypographer(false, true));
+check('typographer: the string "false" falls back rather than reading as true',
+  !resolveTypographer('false', false));
+check('typographer: a number that coerces falsy still falls back',
+  resolveTypographer(0, TYPOGRAPHER_DEFAULT) === TYPOGRAPHER_DEFAULT);
+check('typographer: a missing setting falls back to the contributed default',
+  resolveTypographer(undefined, TYPOGRAPHER_DEFAULT) === TYPOGRAPHER_DEFAULT);
 
 // ---- scroll position survives a re-render ----
 const s1 = run('', { state: { scrollTop: 0, collapsed: [], 'stale-field': 'from an older build' } });

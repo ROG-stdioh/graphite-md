@@ -99,6 +99,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Load images from the network (`https://`) in the preview. Off by default: a preview is a local reading surface, and turning this on lets any document you open make requests to servers its author chose, which tells them your IP and that you opened the file. Images stored beside the document are never affected by this setting."
+        },
+        "graphiteMd.typographer": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Turn the characters you typed into their typographic forms: straight quotes become curly, `--` becomes an en dash, `...` becomes an ellipsis. On by default here; VS Code's own Markdown preview has the same option (`markdown.preview.typographer`) with it off, so a document can read slightly differently in the two previews. Code blocks and inline code are never touched by it."
         }
       }
     }

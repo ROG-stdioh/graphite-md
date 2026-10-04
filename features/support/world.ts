@@ -12,7 +12,7 @@
 // so the types are derived from their real definitions even though the values
 // cannot be imported.
 import type { IWorldOptions } from '@cucumber/cucumber';
-import type { RenderResult } from '../../src/markdown';
+import type { RenderEnv, RenderResult } from '../../src/markdown';
 // TocNode is the shared contract's type, not the renderer's — src/markdown.ts
 // imports it from there too, and deliberately does not re-export it. Naming it
 // from its real home is what keeps the outline shape single-sourced across the
@@ -118,6 +118,16 @@ class PreviewWorld extends World {
    */
   remoteImages: boolean;
   /**
+   * The `graphiteMd.typographer` setting, as the renderer reads it.
+   *
+   * Three states rather than two: `null` is the setting being absent, which is
+   * what a reader who has never opened settings.json has — and which default
+   * applies then is a deliberate divergence from VS Code's preview, so the
+   * absent state is worth a scenario of its own rather than being folded into
+   * `true`.
+   */
+  typographer: boolean | null;
+  /**
    * The log steps' scratch space: the line a message and its cause join into,
    * the one-line form of a webview message, and the text that went in.
    *
@@ -141,14 +151,19 @@ class PreviewWorld extends World {
     this.refSource = '';
     this.docInFolder = false;
     this.remoteImages = false;
+    this.typographer = null;
     this.logState = { line: '', bounded: '', original: '' };
   }
 
   // Render the document the scenario built up.
   render(): RenderResult {
-    this.result = this.imageResolver
-      ? renderMarkdown(this.source, { resolveImage: this.imageResolver })
-      : renderMarkdown(this.source);
+    const env: RenderEnv = {};
+    if (this.imageResolver) env.resolveImage = this.imageResolver;
+    // `null` is left unset on purpose: the renderer answers for what a document
+    // with no setting looks like, and passing `undefined` through is what keeps
+    // the default in src/settings.ts rather than in this file as well.
+    if (this.typographer !== null) env.typographer = this.typographer;
+    this.result = renderMarkdown(this.source, env);
     return this.result;
   }
 

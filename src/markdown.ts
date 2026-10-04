@@ -21,6 +21,10 @@ import type { TocNode } from './shared/protocol';
 // with no editor around it. `activate()` calls setLogger to point it at the
 // Output Channel. See src/logger.ts.
 import { log } from './logger';
+// The typographer's default, next to the contribution it mirrors. settings.ts
+// is free of any `vscode` import — that is the point of it — so the renderer can
+// read it without an editor around.
+import { TYPOGRAPHER_DEFAULT } from './settings';
 
 export interface RenderResult {
   html: string;
@@ -47,6 +51,18 @@ export interface RenderEnv {
    * blocked image stays blocked here and is never silently rewritten.
    */
   resolveImage?: (src: string) => string | undefined;
+
+  /**
+   * markdown-it's typographer for this render: straight quotes become curly,
+   * `--` becomes an en dash, `...` an ellipsis.
+   *
+   * A setting rather than a host-lent capability like `resolveImage` above, but
+   * it travels the same way for the same reason — this file is rendered with no
+   * editor around it, so whatever `vscode` holds has to arrive as an argument.
+   * Omitted means the default in ./settings, which is also what the
+   * contribution in package.json declares.
+   */
+  typographer?: boolean;
 }
 
 // One markdown-it instance is enough; it holds no per-render state itself —
@@ -68,7 +84,9 @@ const md: MarkdownIt = new MarkdownIt({
   // and where the scenarios that hold it live too.
   html: true,
   linkify: true,
-  typographer: true,
+  // `typographer` is deliberately absent here: it is a setting, so it is set on
+  // this instance per render in renderMarkdown(), which is the one place that
+  // knows what the setting says. See RenderEnv.typographer.
   // Syntax highlighting for fenced code blocks. Returning '' tells
   // markdown-it to fall back to its own plain escaping, so an unknown
   // language (or any highlight.js hiccup) degrades to the old monochrome
@@ -590,6 +608,13 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   // hypothetical: it is what the pre-pass did wrong before it was fixed to keep
   // the newlines, and it is what `every checkbox can be toggled in the source
   // file` in features/safety.feature exists to catch.
+  // One markdown-it instance serves every document in the window, and this is
+  // a setting, so the option is written per render rather than at construction.
+  // It has to be *before* the parse: markdown-it's typographic substitutions
+  // are core rules that read `md.options.typographer` while parsing, so a value
+  // set afterwards would change nothing. VS Code's preview re-sets its
+  // instance's options per render for the same reason.
+  md.set({ typographer: env.typographer ?? TYPOGRAPHER_DEFAULT });
   const tokens = md.parse(rawSource, env);
   applyTaskLists(tokens);
   const slugs = new Map<string, number>();

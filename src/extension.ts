@@ -4,7 +4,14 @@ import { renderMarkdown } from './markdown';
 import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview } from './shared/protocol';
 import { buildWebviewHtml } from './webviewHtml';
-import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTENT_WIDTH_MIN } from './settings';
+import {
+  resolveContentWidth,
+  resolveRemoteImages,
+  resolveTypographer,
+  REMOTE_IMAGES_DEFAULT,
+  TYPOGRAPHER_DEFAULT,
+  CONTENT_WIDTH_MIN,
+} from './settings';
 import { taskMarkerColumn } from './taskMarker';
 import { planImageSource } from './sourceRef';
 import { span, report } from './shared/perf';
@@ -302,6 +309,15 @@ function getRemoteImages(): boolean {
   return resolveRemoteImages(config.get('remoteImages'), fallback);
 }
 
+function getTypographer(): boolean {
+  const config = vscode.workspace.getConfiguration('graphiteMd');
+  // And again: the two numbers this setting has — on here, off in VS Code's own
+  // preview — both live in package.json rather than in this file.
+  const declared = config.inspect<unknown>('typographer')?.defaultValue;
+  const fallback = typeof declared === 'boolean' ? declared : TYPOGRAPHER_DEFAULT;
+  return resolveTypographer(config.get('typographer'), fallback);
+}
+
 /**
  * What the webview is allowed to read off disk.
  *
@@ -528,6 +544,7 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
   try {
     result = renderMarkdown(source, {
       resolveImage: imageSourceResolver(webview, currentDoc),
+      typographer: getTypographer(),
     });
   } catch (err) {
     log.error('failed to render document', err);
