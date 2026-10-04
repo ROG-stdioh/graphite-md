@@ -1,0 +1,239 @@
+<h1 class="doc-title">RFC 014 — Shard Rebalancing</h1>
+<p class="doc-sub">Moving shards between storage nodes without stalling writes, and what happens when a move fails halfway.</p>
+
+
+<div class="section" data-id="sec-body-summary">
+  <h2 class="section-head" id="summary" data-target="body-summary">
+    <span class="chev">▾</span><span>Summary</span>
+  </h2>
+  <div class="section-body" id="body-summary">
+    <p>Basalt splits a stream’s data across shards, and shards live on storage nodes. When a node
+fills up, or the cluster gains capacity, shards have to move. Today that happens by hand: an
+operator runs <code>basalt-admin rebalance</code>, watches the output, and intervenes when it stalls.</p>
+<p>This RFC replaces that with a loop that runs inside the coordinator. It plans moves from
+observed disk pressure, executes at most a fixed number at a time, and can be stopped and
+resumed without ever leaving a shard in two places at once. The design is in
+<a href="#design">Design</a>; the parts that need a decision are in <a href="#open-questions">Open questions</a>.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-motivation">
+  <h2 class="section-head" id="motivation" data-target="body-motivation">
+    <span class="chev">▾</span><span>Motivation</span>
+  </h2>
+  <div class="section-body" id="body-motivation">
+    <p>Three things push us here, and only the first is about convenience.</p>
+<p><strong>Every capacity change is a ticket.</strong> Adding a node means an operator picks shards by hand,
+because the tooling has no opinion about which ones should move. They pick badly about a
+third of the time — usually by moving the largest shard first, which is the one most likely
+to stall under write load.</p>
+<p><strong>Moves are not resumable.</strong> If a rebalance is interrupted at 80%, the operator starts over.
+On a 400 GB shard that is several hours of wasted background I/O, and the disk pressure that
+prompted the move is still there.</p>
+<p><strong>Nothing bounds concurrency.</strong> Running two rebalances at once is possible today and will
+saturate the network on a small cluster. We have seen this cause a write-availability
+incident, and the fix was a wiki page telling people not to do it.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-design">
+  <h2 class="section-head" id="design" data-target="body-design">
+    <span class="chev">▾</span><span>Design</span>
+  </h2>
+  <div class="section-body" id="body-design">
+    <p>The planner is a pure function of observed state. It holds no history, so a coordinator
+restart loses nothing and a new coordinator picks up the same plan.</p>
+
+    
+<div class="section" data-id="sec-body-shard-placement">
+  <h3 class="section-head" id="shard-placement" data-target="body-shard-placement">
+    <span class="chev">▾</span><span>Shard placement</span>
+  </h3>
+  <div class="section-body" id="body-shard-placement">
+    <p>Placement is a map from shard to node, held in the coordinator’s raft group and versioned
+with the rest of the cluster metadata. A node advertises its own free space on every
+heartbeat; the coordinator does not probe.</p>
+<table id="table-1" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Signal</th>
+<th style="text-align:left">Source</th>
+<th style="text-align:right">Refresh</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">Disk utilisation</td>
+<td style="text-align:left">Node heartbeat</td>
+<td style="text-align:right">10s</td>
+</tr>
+<tr>
+<td style="text-align:left">Shard size</td>
+<td style="text-align:left">Compaction manifest</td>
+<td style="text-align:right">per compaction</td>
+</tr>
+<tr>
+<td style="text-align:left">Write rate</td>
+<td style="text-align:left">Coordinator histogram</td>
+<td style="text-align:right">30s</td>
+</tr>
+</tbody>
+</table>
+<p>Node-reported free space is advisory. A node can be wrong about its own disk — thin
+provisioning, a filesystem that lies about sparse files, a container whose volume is
+actually a network mount. The planner therefore treats a move that fails on a full
+destination as a signal to lower that node’s advertised capacity, not as an error.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-the-rebalancing-loop">
+  <h3 class="section-head" id="the-rebalancing-loop" data-target="body-the-rebalancing-loop">
+    <span class="chev">▾</span><span>The rebalancing loop</span>
+  </h3>
+  <div class="section-body" id="body-the-rebalancing-loop">
+    <p>Every tick the planner either emits one move or declines to.</p>
+
+    
+<div class="section" data-id="sec-body-choosing-a-target">
+  <h4 class="section-head" id="choosing-a-target" data-target="body-choosing-a-target">
+    <span class="chev">▾</span><span>Choosing a target</span>
+  </h4>
+  <div class="section-body" id="body-choosing-a-target">
+    <p>The pair is chosen by pressure difference, not by absolute fill. A cluster where every node
+sits at 70% is balanced and should do nothing; a cluster with one node at 85% and the rest
+at 40% should move data even though no node is close to full.</p>
+<pre class="hljs"><code><span class="hljs-function"><span class="hljs-keyword">func</span> <span class="hljs-params">(p *Planner)</span></span> Next(now time.Time) (Move, <span class="hljs-type">bool</span>) {
+    <span class="hljs-keyword">if</span> p.inFlight &gt;= p.maxConcurrent {
+        <span class="hljs-keyword">return</span> Move{}, <span class="hljs-literal">false</span>
+    }
+    src := p.hottest()   <span class="hljs-comment">// highest disk utilisation, ties broken by shard count</span>
+    dst := p.coldest()   <span class="hljs-comment">// lowest, never the source</span>
+    <span class="hljs-keyword">if</span> src.Pressure()-dst.Pressure() &lt; p.threshold {
+        <span class="hljs-keyword">return</span> Move{}, <span class="hljs-literal">false</span> <span class="hljs-comment">// nothing worth the I/O</span>
+    }
+    <span class="hljs-keyword">return</span> Move{Shard: src.Largest(), From: src.ID, To: dst.ID}, <span class="hljs-literal">true</span>
+}
+</code></pre>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-bounded-moves">
+  <h4 class="section-head" id="bounded-moves" data-target="body-bounded-moves">
+    <span class="chev">▾</span><span>Bounded moves</span>
+  </h4>
+  <div class="section-body" id="body-bounded-moves">
+    <p><code>max_concurrent_moves</code> defaults to 1 and is capped at 3. The cap is not about correctness —
+the protocol handles any number — it is about leaving headroom for foreground traffic. A
+move competes with compaction and with the write path for the same disks.</p>
+<details>
+<summary>The defaults, in full</summary>
+<pre class="hljs"><code><span class="hljs-section">[rebalancing]</span>
+<span class="hljs-attr">enabled</span>            = <span class="hljs-literal">false</span>        <span class="hljs-comment"># flag-gated, per cluster</span>
+<span class="hljs-attr">max_concurrent</span>     = <span class="hljs-number">1</span>            <span class="hljs-comment"># capped at 3</span>
+<span class="hljs-attr">threshold</span>          = <span class="hljs-number">0.15</span>         <span class="hljs-comment"># pressure difference worth the I/O</span>
+<span class="hljs-attr">tick</span>               = <span class="hljs-string">&quot;30s&quot;</span>
+<span class="hljs-attr">drain_timeout</span>      = <span class="hljs-string">&quot;5m&quot;</span>         <span class="hljs-comment"># abort the move rather than hold writes open</span>
+</code></pre>
+<p>The values are the ones we intend to ship; the tick and the drain timeout are the two we
+expect to revisit after the first clusters run with the loop enabled.</p>
+</details>
+<blockquote class="callout"><p><strong>Threshold tuning matters more than the algorithm does.</strong> Set it too low and the cluster
+never stops moving data, spending its whole I/O budget shuffling shards that are already
+balanced. Set it too high and nodes fill up before the planner notices. Start at 0.15 and
+treat it as a per-cluster setting, not a constant.</p>
+</blockquote>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-failure-handling">
+  <h3 class="section-head" id="failure-handling" data-target="body-failure-handling">
+    <span class="chev">▾</span><span>Failure handling</span>
+  </h3>
+  <div class="section-body" id="body-failure-handling">
+    <p>A move has three phases, and only the last one is destructive.</p>
+<ol>
+<li><strong>Copy.</strong> The destination streams the shard and reports progress.
+<ul>
+<li>The source keeps serving reads and writes.</li>
+<li>Nothing is committed, so failing here costs only the I/O already spent.</li>
+</ul>
+</li>
+<li><strong>Drain.</strong> The source stops accepting writes for the shard and flushes what it has.
+<ul>
+<li>This is the only window where the shard is unavailable.</li>
+<li>It is bounded by the flush, not by the shard size, which is why the timeout is a
+timeout and not a size limit.</li>
+</ul>
+</li>
+<li><strong>Commit.</strong> The coordinator writes the new placement to raft and the source deletes its copy.</li>
+</ol>
+<div class="mermaid" id="diagram-1">graph TD
+    Move[Move planned] --&gt; Copy["Copy: source keeps serving"]
+    Copy -- streamed --&gt; Drain["Drain: writes paused"]
+    Drain -- flushed --&gt; Commit["Commit: placement in raft"]
+    Copy -- failure --&gt; Stay[Shard stays on the source]
+    Drain -- failure --&gt; Stay
+</div><p>A failure in phase 1 or 2 leaves the shard exactly where it was. A coordinator crash after
+the raft write in phase 3 leaves a stale copy on the source, which the next reaper pass
+deletes — the placement map is the only source of truth, and a copy that disagrees with it is
+garbage by definition.</p>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-rollout">
+  <h2 class="section-head" id="rollout" data-target="body-rollout">
+    <span class="chev">▾</span><span>Rollout</span>
+  </h2>
+  <div class="section-body" id="body-rollout">
+    <p>Flag-gated, off by default, enabled per cluster. The first clusters should be the ones already
+rebalancing by hand, so an operator can compare the planner’s choices against their own.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-alternatives-considered">
+  <h2 class="section-head" id="alternatives-considered" data-target="body-alternatives-considered">
+    <span class="chev">▾</span><span>Alternatives considered</span>
+  </h2>
+  <div class="section-body" id="body-alternatives-considered">
+    <p><strong>Consistent hashing with virtual nodes.</strong> Would avoid moves entirely for the common
+add-a-node case, but it cannot express “this shard is hot and should move” or “these two
+shards must not share a node.” We need placement to be a decision, not a function of the key.</p>
+<p><strong>Letting nodes trade shards with each other.</strong> Removes the coordinator from the data path,
+but two nodes agreeing to a swap without a shared log is exactly the split-brain we spent
+0.9 avoiding.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-open-questions">
+  <h2 class="section-head" id="open-questions" data-target="body-open-questions">
+    <span class="chev">▾</span><span>Open questions</span>
+  </h2>
+  <div class="section-body" id="body-open-questions">
+    <ul>
+<li>Should the threshold adapt to cluster size, or stay an operator setting?</li>
+<li>Do we need a maintenance window concept, so planned moves can exceed the concurrency cap?</li>
+<li>What does the planner do on a cluster where every node is above threshold?</li>
+</ul>
+
+    
+  </div>
+</div>

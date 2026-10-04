@@ -1,0 +1,177 @@
+<h1 class="doc-title">v3 Migration Runbook</h1>
+<p class="doc-sub">Moving a Basalt cluster from 2.x to 3.0 with no read downtime. Budget four hours; the cutover itself is under ten minutes.</p>
+
+
+<div class="section" data-id="sec-body-before-you-start">
+  <h2 class="section-head" id="before-you-start" data-target="body-before-you-start">
+    <span class="chev">▾</span><span>Before you start</span>
+  </h2>
+  <div class="section-body" id="body-before-you-start">
+    <p>Do not run this during a deploy freeze, and do not run it alone. The cutover step needs one
+person watching the coordinator log and one watching client error rates, and they need to be
+able to talk to each other without going through a ticket.</p>
+<ul>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="10"></span>Change window approved, announced 72 hours ahead</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="11"></span>On-call notified, and the migration is on the handover</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="12"></span>Snapshot taken and <strong>verified restorable</strong> — a snapshot you have not restored is not a backup</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="13"></span>Rollback owner named, and they are not the person driving the cutover</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="14"></span>Client teams told which SDK version they need</li>
+</ul>
+<blockquote class="callout"><p><strong>Version skew is the thing that bites.</strong> 2.x clients can read from a 3.0 cluster but cannot
+write to one. If any client is still on an SDK older than 2.7, the cutover will appear to
+succeed and writes will fail an hour later when the first one reconnects.</p>
+</blockquote>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-pre-flight">
+  <h2 class="section-head" id="pre-flight" data-target="body-pre-flight">
+    <span class="chev">▾</span><span>Pre-flight</span>
+  </h2>
+  <div class="section-body" id="body-pre-flight">
+    <p>Run all of this against the live cluster. Nothing here is destructive.</p>
+<pre class="hljs"><code>basalt-admin cluster status --check-compat
+basalt-admin shard list --unhealthy
+basalt-admin snapshot verify --latest
+</code></pre>
+<ul>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="30"></span><code>--check-compat</code> reports no blocking incompatibilities</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="31"></span>No shards in <code>UNDER_REPLICATED</code> or <code>SPLITTING</code></li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="32"></span>Snapshot verifies and its timestamp is under an hour old</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="33"></span>Every client SDK reports 2.7 or newer</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="34"></span>Coordinator, all storage nodes and all gateways on the same 2.x patch release</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="35"></span>At least 25% free disk on every node — the migration rewrites the shard index and it is not small</li>
+</ul>
+<details>
+<summary>What a clean <code>--check-compat</code> looks like</summary>
+<pre class="hljs"><code>compat: 3 blocking checks, 0 failed
+  coordinators     2.8.4   ok
+  storage nodes    2.8.4   ok   (12/12)
+  gateways         2.8.4   ok
+  client SDKs      2.7.1+  ok   (minimum 2.7.1)
+</code></pre>
+<p>Anything reading <code>warn</code> is the thing to chase now, not during the window. The one that has
+bitten us is an SDK pinned by a transitive dependency: the application is on 2.8 and the
+driver it pulls in is on 2.5.</p>
+</details>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-cutover">
+  <h2 class="section-head" id="cutover" data-target="body-cutover">
+    <span class="chev">▾</span><span>Cutover</span>
+  </h2>
+  <div class="section-body" id="body-cutover">
+    <p>This is the only step that touches production. Expect 6 to 9 minutes.</p>
+<ol>
+<li>Drain the gateways: <code>basalt-admin gateway drain --wait</code></li>
+<li>Confirm zero in-flight writes with <code>basalt-admin writes inflight</code></li>
+<li>Upgrade the coordinators, one at a time, waiting for raft leadership to settle between each</li>
+<li>Upgrade storage nodes in batches of 3, rolling</li>
+<li>Upgrade gateways and un-drain</li>
+</ol>
+<table id="table-1" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Step</th>
+<th style="text-align:right">Expected</th>
+<th style="text-align:left">Pausable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">Gateway drain</td>
+<td style="text-align:right">1–2 min</td>
+<td style="text-align:left">yes</td>
+</tr>
+<tr>
+<td style="text-align:left">Coordinator upgrade</td>
+<td style="text-align:right">2–3 min</td>
+<td style="text-align:left">yes, between nodes</td>
+</tr>
+<tr>
+<td style="text-align:left">Storage batches</td>
+<td style="text-align:right">3–5 min</td>
+<td style="text-align:left">yes, between batches</td>
+</tr>
+<tr>
+<td style="text-align:left">Un-drain</td>
+<td style="text-align:right">under 1 min</td>
+<td style="text-align:left">no</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="71"></span>Step 3 complete, leadership stable on a single coordinator for two minutes</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="72"></span>Step 4 batch 1 healthy before starting batch 2</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="73"></span>Writes flowing, verified with a real client rather than a smoke test</li>
+</ul>
+<blockquote class="callout"><p><strong>If the drain stalls</strong>, it is almost always one gateway holding an idle keep-alive
+connection open. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the drain cleanly and leaves the
+cluster exactly where it was — nothing is committed until step 3.</p>
+</blockquote>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-verification">
+  <h2 class="section-head" id="verification" data-target="body-verification">
+    <span class="chev">▾</span><span>Verification</span>
+  </h2>
+  <div class="section-body" id="body-verification">
+    <p>Give it fifteen minutes of real traffic before declaring success. The failure mode we have
+seen most is a shard that reads correctly and rejects writes under compaction.</p>
+<ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="84"></span>Read p99 within 20% of the pre-migration baseline</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="85"></span>Write p99 within 20% of baseline</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="86"></span>No shards in <code>UNDER_REPLICATED</code> after fifteen minutes</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="87"></span>Compaction ran at least once on every node</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="88"></span>One full backup completed end to end</li>
+</ul>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-rollback">
+  <h2 class="section-head" id="rollback" data-target="body-rollback">
+    <span class="chev">▾</span><span>Rollback</span>
+  </h2>
+  <div class="section-body" id="body-rollback">
+    <p>Rolling back is supported for one hour after the <a href="#cutover">cutover</a>, and only if no 3.0-only
+features have been enabled. Check before you need it:</p>
+<pre class="hljs"><code>basalt-admin cluster features --list-enabled
+</code></pre>
+<div class="mermaid" id="diagram-1">graph TD
+    Done[Cutover complete] --&gt; Check[Check enabled features]
+    Check -- none 3.0-only --&gt; Back[Rollback available for one hour]
+    Check -- shard-rebalancing or streaming-snapshots --&gt; Forward[Fix forward with support]
+</div><p>If anything reads <code>shard-rebalancing</code> or <code>streaming-snapshots</code>, rollback is no longer
+available and the forward path is to fix forward with support on the call.</p>
+<ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="109"></span>Feature list checked and recorded in the migration ticket</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="110"></span>Rollback rehearsed in staging within the last week</li>
+</ul>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-after-the-migration">
+  <h2 class="section-head" id="after-the-migration" data-target="body-after-the-migration">
+    <span class="chev">▾</span><span>After the migration</span>
+  </h2>
+  <div class="section-body" id="body-after-the-migration">
+    <ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="114"></span>Update the runbook with anything that surprised you — the next person reads this, not the ticket</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="115"></span>Remove the 2.x SDK from the client docs</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="116"></span>Close the migration ticket with the actual timings, not the planned ones</li>
+</ul>
+
+    
+  </div>
+</div>
