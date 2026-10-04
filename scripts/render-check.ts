@@ -97,6 +97,18 @@ async function main(): Promise<void> {
     /katex-display/.test(aloneDouble.html) && !/<p>/.test(aloneDouble.html)
   );
 
+  // #41's other half, and the half a parsed tree cannot see: the browser's error
+  // recovery is what puts the paragraph back together, so a repaired page looks
+  // the same whether or not the markup was ever broken. Asserted on the raw
+  // string instead — the `<eqn>` is inside the sentence's paragraph (the
+  // positive control) and no block element is.
+  const midSentenceDouble = renderMarkdown('## S\n\nThe area $$x^2$$ is large.\n');
+  check(
+    'a mid-sentence $$ formula is inline content, not block markup',
+    /<p[^>]*>(?:(?!<\/p>)[\s\S])*<eqn\b/.test(midSentenceDouble.html) &&
+      !/<p[^>]*>(?:(?!<\/p>)[\s\S])*<(?:section|div|table|pre|blockquote)\b/.test(midSentenceDouble.html)
+  );
+
   // ---- raw HTML -------------------------------------------------------------
   // The sample carries a whole section of it, and the point of these is the
   // same as the point of the section: raw HTML arrives as markup rather than as

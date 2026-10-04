@@ -118,6 +118,32 @@ const md: MarkdownIt = new MarkdownIt({
 // matched by separate, non-fuzzy rules and still linkify.
 md.linkify.set({ fuzzyLink: false });
 
+// texmath's inline `$$…$$` template wraps the formula in a `<section>`, which
+// is block markup — so a formula written *inside* a sentence arrived as a
+// `<section>` inside the sentence's `<p>`. A `<p>` cannot contain a
+// `<section>`, so the browser's error recovery closed the paragraph at the
+// formula and left the words after it outside any paragraph: the page read
+// correctly and the markup did not say what the sentence was (#41).
+//
+// The wrapper is dropped and the `<eqn>` it also carried stays — an element a
+// paragraph may hold, keeping the formula on its own centred line via KaTeX's
+// own `.katex-display{display:block}`. Nothing in the project styles `section`
+// or `eqn`, so the wrapper was load-bearing for nothing. Only the inline
+// template changes: a `$$…$$` line on its own is a block token, whose
+// `<section>` sits beside the paragraphs rather than inside one.
+//
+// Edited in place rather than re-registered, unlike the rules below: a template
+// has no factory, and `texmath.rules` is the library's extension surface — this
+// is the object the registration below reads, so there is nothing to keep in
+// step.
+try {
+  const dollarDouble = texmath.rules.dollars?.inline.find((rule) => rule.name === 'math_inline_double');
+  if (!dollarDouble) throw new Error('texmath carries no `math_inline_double` rule for dollars');
+  dollarDouble.tmpl = '<eqn>$1</eqn>';
+} catch (err) {
+  log.error('failed to unwrap the inline `$$…$$` template; a mid-sentence formula may split its paragraph', err);
+}
+
 // Registering a plugin runs at module load time — if it throws, the whole
 // extension fails to even load (this file is require()'d from extension.ts
 // before activate() runs), which is a much worse failure mode than "the

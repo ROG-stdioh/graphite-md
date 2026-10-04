@@ -164,6 +164,33 @@ Feature: Math
     Then the preview renders it as displayed math
     And the preview shows 0 p elements
 
+  # ---- a formula in the middle of a sentence ---------------------------------
+  # Issue #41. texmath's inline `$$…$$` template wraps the formula in a
+  # `<section>`, which is block markup — so a formula written *inside* a
+  # sentence arrived as a `<section>` inside the sentence's `<p>`. A `<p>`
+  # cannot contain a `<section>`, so the browser's error recovery closed the
+  # paragraph at the formula: the sentence became `<p>The area</p>`, the maths,
+  # then "is large." as a loose text node outside any paragraph. The page read
+  # correctly, and the repair was the browser's rather than something the
+  # markup said.
+  #
+  # Nothing needs the wrapper: display maths is block because KaTeX's own
+  # `.katex-display{display:block}` says so, and no rule here styles `section`
+  # or `eqn`. Only the inline template changes — a `$$…$$` line on its own is a
+  # block token, whose `<section>` sits beside the paragraphs rather than
+  # inside one.
+  Scenario: A formula written mid-sentence stays in its sentence
+    Given a markdown document:
+      """
+      ## Notes
+
+      The area $$x^2$$ is large.
+      """
+    When the preview renders it
+    Then the preview typesets 1 piece of math
+    And the preview renders it as displayed math
+    And a single paragraph holds both "The area" and "is large."
+
   Scenario: Malformed math is flagged instead of breaking the page
     Given a markdown document "Bad: $\frac{1}{$ here."
     When the preview renders it
