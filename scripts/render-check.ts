@@ -54,6 +54,27 @@ async function main(): Promise<void> {
   check('strikethrough <s>', /<s>strikethrough<\/s>/.test(html));
   check('mark nests inside strong', /<strong><mark>/.test(html) || /<mark><strong>/.test(html));
 
+  // ---- the typographer ------------------------------------------------------
+  // Written with the characters a keyboard has and rendered with the ones type
+  // wants. Every substitution below is a markdown-it *core* rule, read while
+  // parsing, which is why asserting them here also asserts that the option is
+  // set before the parse rather than after it — a value written afterwards
+  // changes nothing and would leave every one of these as its plain spelling.
+  check(
+    'typographer: curly quotes, dashes, ellipsis, symbols',
+    html.includes('“Double quotes”') &&
+      html.includes('‘single quotes’') &&
+      html.includes('it’s a contraction') &&
+      html.includes('an – en dash') &&
+      html.includes('an — em dash') &&
+      html.includes('an ellipsis…') &&
+      html.includes('© ® ™ ±')
+  );
+  // The entity half of the same idea, and the escape that has to stay one:
+  // `&lt;` is how a document writes a tag it does not want rendered, so it
+  // arrives as text and only the entities resolve.
+  check('HTML entities resolve, and an escaped tag stays text', html.includes('© &amp; — &lt;not a tag&gt;.'));
+
   // ---- footnotes ------------------------------------------------------------
   check('footnotes section rendered', /class="footnotes"/.test(html) && /text contents of the footnote/.test(html));
   check('footnote ref anchors (forward + backref)', /href="#fn1" id="fnref1"/.test(html) && /href="#fnref1" class="footnote-backref"/.test(html));
@@ -76,7 +97,17 @@ async function main(): Promise<void> {
   check('inline math via katex', /<span class="katex">/.test(html));
   check('display math via katex-display', /katex-display/.test(html));
   check('malformed latex does not throw', /katex/.test(html) && html.length > 1000);
-  check('mermaid blocks (both diagrams)', /class="mermaid" id="diagram-1"/.test(html) && /class="mermaid" id="diagram-2"/.test(html));
+  check(
+    'mermaid blocks (all three diagrams)',
+    ['diagram-1', 'diagram-2', 'diagram-3'].every((id) => html.includes(`class="mermaid" id="${id}"`))
+  );
+  // A diagram's source is escaped before it reaches the page, and a label
+  // carrying `<` or `&` is what shows it: unescaped, the browser reads the
+  // label as markup and the diagram does not draw at all.
+  check(
+    'a diagram label carrying markup characters is escaped',
+    html.includes('Latency &lt; 5ms &amp; stable') && html.includes('Within budget?')
+  );
 
   // The two `$$…$$` block rules match at the start of a line and used to consume
   // the rest of it, so text written after the closing `$$` was dropped without a
@@ -108,6 +139,23 @@ async function main(): Promise<void> {
     /<p[^>]*>(?:(?!<\/p>)[\s\S])*<eqn\b/.test(midSentenceDouble.html) &&
       !/<p[^>]*>(?:(?!<\/p>)[\s\S])*<(?:section|div|table|pre|blockquote)\b/.test(midSentenceDouble.html)
   );
+
+  // The same shapes again, written into the sample rather than rendered from a
+  // snippet. Not redundant: the sample is what the dev-host pass reads and what
+  // a person actually opens, so a fix that held only for a two-line document
+  // would not survive contact with a real one — and the sample is where these
+  // shapes have to keep working as the document grows around them.
+  check(
+    'sample: a price before a formula keeps the price and typesets the formula',
+    html.includes('It costs $5, and the other one costs $10, unlike') &&
+      /annotation encoding="application\/x-tex">x \+ y</.test(html)
+  );
+  check(
+    'sample: a leading $$ keeps the text after it, and the text between two on a line',
+    html.includes('is the area, and') && html.includes('both on one line.')
+  );
+  check('sample: a mid-sentence $$ stays inside its sentence', /<p>The area <eqn>/.test(html));
+  check('sample: a $$ line of its own is a block, with no paragraph around it', /<section><eqn>/.test(html));
 
   // ---- raw HTML -------------------------------------------------------------
   // The sample carries a whole section of it, and the point of these is the
@@ -154,6 +202,23 @@ async function main(): Promise<void> {
     fenced.includes('fenced.png') && !fenced.includes('resolved:fenced.png')
   );
 
+  // Four elements carry a `src` and the rule rewrites all four, but the sample
+  // can only ever demonstrate one of them: it is rendered with no resolver, so
+  // a relative `src` in it comes out untouched whether the rule works or not.
+  // These render their own documents with one, which is the only way to see the
+  // other three — `<source>` especially, which is void, so an opening and a
+  // closing tag can never be counted for it.
+  const media = renderMarkdown(
+    '<video src="clip.mp4"></video>\n\n<audio src="clip.mp3"></audio>\n\n<source src="clip.webm">',
+    { resolveImage: (s) => `resolved:${s}` }
+  ).html;
+  check(
+    'a raw <video>, <audio> and <source> source is resolved by the host',
+    media.includes('src="resolved:clip.mp4"') &&
+      media.includes('src="resolved:clip.mp3"') &&
+      media.includes('src="resolved:clip.webm"')
+  );
+
   // ---- mixed HTML and Markdown ----------------------------------------------
   // Inline HTML is transparent, so the sample puts a tag in a sentence and the
   // Markdown around it still renders.
@@ -184,6 +249,23 @@ async function main(): Promise<void> {
   };
   check('a heading with no blank line above it never becomes one', !hasHeading('Swallowed'));
   check('a heading with a blank line above it does', hasHeading('Kept'));
+
+  // ---- anchors --------------------------------------------------------------
+  // The slug rule is GitHub's, and the sample writes the three cases that
+  // separate it from a `[a-z0-9]` strip: a heading in a non-Latin script, a
+  // heading that is nothing but punctuation, and two headings with the same
+  // text. Each one is a link that either resolves or does not.
+  check('a heading in a non-Latin script keeps its anchor', /id="café-日本語-ünïcödé-naïve"/.test(html));
+  check('a heading of nothing but punctuation falls back to `section`', /id="section"/.test(html));
+  check(
+    'repeated headings get numbered suffixes',
+    /id="repeated-heading"/.test(html) && /id="repeated-heading-1"/.test(html) && /id="repeated-heading-2"/.test(html)
+  );
+  check(
+    'trailing hashes are stripped from the heading and from its anchor',
+    hasHeading('Trailing hashes are stripped') && !hasHeading('Trailing hashes are stripped ###')
+  );
+  check('a setext heading is a heading like any other', hasHeading('Setext Underline Heading'));
 
   // ---- tables get their ids from one scan ------------------------------------
   // The Tables tab is built from these ids, so what it lists is exactly what the
@@ -264,6 +346,13 @@ async function main(): Promise<void> {
 
   // ---- structure ------------------------------------------------------------
   check('first H1 extracted as doc title', /<h1 class="doc-title">/.test(html));
+  // The one-line summary under the title. The rule is "the first paragraph
+  // after the H1", so the sample has to keep an ordinary paragraph second or
+  // this could pass for the wrong reason.
+  check(
+    'the first paragraph after the title is the subtitle',
+    /<p class="doc-sub">Everything the preview can render, in one file\.<\/p>/.test(html)
+  );
   check('second H1 stays in the outline', r.headings.some((h) => h.label.startsWith('A Second Top-Level Heading')));
   check('quote-nested heading NOT in outline', !r.headings.some((h) => h.label.includes('Markdown Inside Quotes')));
   // `?.` rather than the `&&` chain this used to be: with the outline typed,
@@ -275,10 +364,24 @@ async function main(): Promise<void> {
     return !!h6 && h6.label.startsWith('H6:');
   })());
   check('outline has multiple roots', r.headings.length >= 6);
-  // Six, not three. The sample's three Markdown tables are joined by the three
+  // Seven, not three. The sample's four Markdown tables are joined by the three
   // written by hand — including the one the document named itself.
-  check('tables collected (6)', r.tables.length === 6);
-  check('diagrams collected (2)', r.diagrams.length === 2);
+  check('tables collected (7)', r.tables.length === 7);
+  // An empty cell is not a missing one: the row keeps its shape and the borders
+  // still line up. The sample writes two rows of three with two filled cells in
+  // total, so six cells are the right answer and five or seven are both wrong.
+  // Scoped to the one table in the sample that has any, by a pattern that cannot
+  // run past its own `</table>` into the next one.
+  const emptyCellTable =
+    html.match(/<table[^>]*>(?:(?!<\/table>)[\s\S])*Also empty(?:(?!<\/table>)[\s\S])*<\/table>/)?.[0] ?? '';
+  const bodyCells = emptyCellTable.match(/<tbody>[\s\S]*<\/tbody>/)?.[0] ?? '';
+  check(
+    'a table with empty cells keeps every cell',
+    (bodyCells.match(/<td[^>]*>[\s\S]*?<\/td>/g) ?? []).length === 6 &&
+      (bodyCells.match(/<td[^>]*><\/td>/g) ?? []).length === 4 &&
+      (bodyCells.match(/<td[^>]*>a value<\/td>/g) ?? []).length === 2
+  );
+  check('diagrams collected (3)', r.diagrams.length === 3);
   check('task checkboxes with source lines', /task-checkbox/.test(html) && /data-line="\d+"/.test(html));
   check('checked + unchecked boxes both emitted', /task-checkbox checked/.test(html) && /class="task-checkbox"/.test(html));
 
@@ -298,6 +401,71 @@ async function main(): Promise<void> {
   check('bare email still linkifies', /href="mailto:me@example\.com"/.test(render('Ping me@example.com please.')));
   check('explicit relative markdown link survives', /href="setup\.md"/.test(render('Read [setup](setup.md).')));
 
+  // The same constructs again, read back out of the sample rather than out of a
+  // fixture written for the check. A sample that stopped demonstrating one of
+  // these would still render, and the file's whole job is to demonstrate them,
+  // so the assertion belongs on the file.
+  check(
+    'the sample shows why the fuzzy-link regression matters',
+    html.includes('README.md, setup.sh or') && !/href="http:\/\/(README\.md|setup\.sh|main\.rs)"/.test(html)
+  );
+  check('the sample linkifies an email address', html.includes('href="mailto:someone@example.com"'));
+  check('the sample keeps a bare domain as text', !/href="[^"]*www\.example\.com/.test(html));
+  check(
+    'the sample carries a titled link in both spellings',
+    html.includes('title="Reference-style links carry a title too"') &&
+      /title="The title rides on the link, whichever\s+spelling wrote it"/.test(html)
+  );
+
+  // ---- the sample's edge cases ----------------------------------------------
+  // Each of these is a shape a renderer gets wrong quietly: the break that is
+  // not a paragraph end, the ordered list that starts at 1 anyway, the item
+  // wrapped in a `<p>` only because a blank line followed it, and the two
+  // characters that look exactly like a checkbox and are not one.
+  check(
+    'both hard-break spellings render a <br>',
+    html.includes('at the end of this line<br>') && html.includes('other spelling of the same break:<br>')
+  );
+  check('a thematic break renders as <hr>, in either spelling', (html.match(/<hr>/g) ?? []).length === 3);
+  check('an ordered list keeps the start number it was given', html.includes('<ol start="3">'));
+  check(
+    'an item followed by a blank line is wrapped in a paragraph',
+    /<li>\s*<p>An item with a blank line after it<\/p>/.test(html)
+  );
+  // `- [ ]` with nothing after it is not a task item — the brackets are the
+  // item's own text. The real task items sit in the same list, so this cannot
+  // pass because the list failed to render.
+  check(
+    'a bare [ ] is text, not a checkbox',
+    html.includes('<li>[ ]</li>') && html.includes('<span class="task-checkbox" data-line=')
+  );
+  check(
+    'a blockquote holding nothing renders empty rather than vanishing',
+    html.includes('<blockquote class="callout"></blockquote>')
+  );
+  check(
+    'the sample offers a raw <video> and <audio> to the host',
+    html.includes('<video src="../images/overview.png" controls></video>') &&
+      html.includes('<audio src="../images/overview.png" controls></audio>')
+  );
+
+  // ---- what the sample says about math, read back ---------------------------
+  check(
+    'a LaTeX delimiter is not a delimiter here',
+    html.includes('Inline (x^2) and display [y^2], but ')
+  );
+  check('an escaped dollar is a dollar, not a formula', html.includes('is a dollar and nothing more: $5 and $10, while'));
+  check(
+    'a display formula inside a quote or a list item stays in it',
+    /<blockquote class="callout"><section><eqn/.test(html) &&
+      /<li>\s*<p>A list item holding a display formula:<\/p>\s*<section><eqn/.test(html)
+  );
+  check(
+    'extended syntax nests and stays inside its word',
+    html.includes('log<sub>2</sub>n') &&
+      html.includes('<s><strong>bold</strong> and <code>code</code> inside a strikethrough</s>')
+  );
+
   // `script`, `form` and `iframe` are in this list on purpose. They are the
   // tags a document is not supposed to be able to *do* anything with, and a
   // mismatch in one of them is what renested the whole right-hand pane before —
@@ -307,12 +475,13 @@ async function main(): Promise<void> {
   //
   // `open > 0` as well as `open === close`, which is the half that was missing.
   // A tag the sample never writes pairs perfectly at 0 and 0, so the check
-  // passed without having looked at anything — and `<video>` and `<audio>` were
-  // the two in this list the kitchen sink did not contain, measured rather than
-  // guessed. They are out of the list now, and `<video>` is covered by the
-  // scenarios in safety.feature instead. For the rest, a renderer that quietly
-  // stopped emitting, say, `<table>` now fails here and says so by name.
-  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe']) {
+  // passed without having looked at anything. Every tag in the list is now one
+  // the sample really contains — `<video>` and `<audio>` joined it when the raw
+  // HTML section grew them — and a renderer that quietly stopped emitting, say,
+  // `<table>` fails here and says so by name. `<source>` is deliberately absent:
+  // it is void, so an opening and a closing tag can never be counted for it, and
+  // the resolver check above covers it instead.
+  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe', 'video', 'audio']) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
     check(`tag balance <${tag}> (${open} open / ${close} close)`, open > 0 && open === close);
