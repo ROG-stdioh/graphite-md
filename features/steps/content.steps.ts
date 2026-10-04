@@ -96,6 +96,90 @@ Then<PreviewWorld>('the preview shows {string} as inline code', function (text: 
   );
 });
 
+// ---- emphasis ------------------------------------------------------------
+// `<em>` and `<strong>` were asserted nowhere in this repo. Every document is
+// mostly emphasis and links, and the whole pair of tags — which spelling of the
+// marker produces which, and that a doubled marker is not two singles — went
+// unwatched.
+
+Then<PreviewWorld>('the preview shows {string} in italics', function (text: string) {
+  const held = heldBy(this.html, 'em');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in an <em>; the page's <em> elements hold ${JSON.stringify(held)}`
+  );
+});
+
+Then<PreviewWorld>('the preview shows {string} in bold', function (text: string) {
+  const held = heldBy(this.html, 'strong');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in a <strong>; the page's <strong> elements hold ${JSON.stringify(held)}`
+  );
+});
+
+/**
+ * `inner` in an `<innerTag>` inside an `<outerTag>` whose own text is `outer`.
+ *
+ * Read through the outer element rather than over the whole page, because "the
+ * italic is inside the bold" is the claim and a document that holds both tags
+ * side by side satisfies anything asked of the page as a whole.
+ */
+function expectNested(
+  html: string,
+  innerTag: string,
+  inner: string,
+  outerTag: string,
+  outer: string
+): void {
+  const outers = byTag(parseHtml(html), outerTag).filter((el) => textOf(el) === outer);
+  assert.ok(
+    outers.length > 0,
+    `expected a <${outerTag}> holding exactly ${JSON.stringify(outer)}; the page's <${outerTag}> ` +
+      `elements hold ` + JSON.stringify(heldBy(html, outerTag))
+  );
+  const nested = outers.flatMap((el) => byTag(el, innerTag)).map((el) => textOf(el));
+  assert.ok(
+    nested.includes(inner),
+    `expected ${JSON.stringify(inner)} in a <${innerTag}> inside that <${outerTag}>; it holds ` +
+      JSON.stringify(nested)
+  );
+}
+
+// Both directions, because they are two different renderings of `***x***`:
+// markdown-it reads the triple marker as bold inside italics, and a renderer
+// that crossed the two would satisfy "both tags hold the text" either way.
+Then<PreviewWorld>('the preview shows {string} in bold inside the italics {string}', function (
+  inner: string,
+  outer: string
+) {
+  expectNested(this.html, 'strong', inner, 'em', outer);
+});
+
+Then<PreviewWorld>('the preview shows {string} in italics inside the bold {string}', function (
+  inner: string,
+  outer: string
+) {
+  expectNested(this.html, 'em', inner, 'strong', outer);
+});
+
+// The claim is about the *only* italics on the page, which is what makes it a
+// control as well as an assertion. A scenario whose subject is "this underscore
+// is not emphasis" is satisfied by a renderer that emits no `<em>` at all, so
+// the same document carries one real emphasis and this step is what says so.
+//
+// The whole list, not a membership test: two italics where the document wrote
+// one is the failure a naive `_` rule produces, and membership would not see it.
+Then<PreviewWorld>('the italics on the page are exactly {string}', function (expected: string) {
+  const held = heldBy(this.html, 'em');
+  assert.deepStrictEqual(
+    held,
+    [expected],
+    '\n  italics mismatch\n  expected exactly: ' + JSON.stringify([expected]) +
+      '\n  actual:           ' + JSON.stringify(held)
+  );
+});
+
 // ---- the typographer ------------------------------------------------------
 
 Given<PreviewWorld>('the typographer is on', function () {
