@@ -1009,16 +1009,24 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   // first paragraph right after the H1 reads as a subtitle, matching the
   // "title + one-liner" convention most docs use.
   //
+  // The condition is the whole rule, not a detail: without it this fires on
+  // whichever paragraph comes first in any document, so a note that opens with
+  // prose — no heading anywhere — has its first line rendered muted and smaller
+  // than the rest of it (#39). `docTitleHtml` is set from the first level-1
+  // heading and from nothing else, so it is exactly "the H1 exists".
+  //
   // The `<p>` this looks for is no longer the first character of the intro when
   // the document opens with front matter, because the renderer draws that table
   // above everything else — a `<p>` anchored at the start would find a `<table>`
   // and the summary would quietly stop being one. So the table is stepped over,
   // and only there: without front matter the optional group matches nothing and
   // this is the expression it always was.
-  const introWithSubtitle = introHtml.replace(
-    /^(<table class="frontmatter">[\s\S]*?<\/table>\s*)?<p>/,
-    '$1<p class="doc-sub">'
-  );
+  const introWithSubtitle = docTitleHtml
+    ? introHtml.replace(
+        /^(<table class="frontmatter">[\s\S]*?<\/table>\s*)?<p>/,
+        '$1<p class="doc-sub">'
+      )
+    : introHtml;
 
   return {
     html: `${titleBlock}\n${introWithSubtitle}\n${sectionsHtml}\n${footnotesHtml}`,
