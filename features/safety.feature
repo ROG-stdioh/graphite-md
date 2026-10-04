@@ -72,13 +72,35 @@ Feature: Rendering someone else's document
   # What this catches is the policy admitting media from anywhere while remote
   # images are off — a directive added for parity that quietly widened the one
   # thing the setting exists to narrow.
+  #
+  # The tag and its source are asserted alongside the policy, so the policy
+  # assertions cannot be satisfied by a document that never rendered.
   Scenario: Media from the network is refused while remote images are off
-    Given a markdown document:
+    Given remote images are off
+    And a markdown document:
       """
       <video src="https://example.com/clip.mp4" controls></video>
       """
     When the preview renders it
-    Then the page loads media from nowhere but itself
+    Then the video is loaded from "https://example.com/clip.mp4"
+    And the page treats media exactly as it treats images
+    And the page admits nothing from the network
+
+  # The other arm, and what makes the three assertions above a test of the
+  # setting rather than of how the page happens to be built: switch it on and
+  # the same document, with the same source, is admitted. A policy that refused
+  # the network unconditionally — a bug that would break remote images for
+  # everyone — passes everything above and fails here.
+  Scenario: Media from the network is allowed when remote images are on
+    Given remote images are on
+    And a markdown document:
+      """
+      <video src="https://example.com/clip.mp4" controls></video>
+      """
+    When the preview renders it
+    Then the video is loaded from "https://example.com/clip.mp4"
+    And the page treats media exactly as it treats images
+    And the page admits images from the network
 
   # A nonce that never changed would be a constant with extra steps, and every
   # scenario above would still pass. This is what makes the nonce a nonce.
