@@ -10,6 +10,7 @@
 //
 // See document.steps.ts for why every step takes a world type argument and
 // every parameter an annotation.
+import type { DataTable } from '@cucumber/cucumber';
 import type * as Html from '../lib/html';
 import type { PreviewWorld } from '../support/world';
 
@@ -20,6 +21,7 @@ const {
   byTag,
   classesOf,
   commentsIn,
+  firstTag,
   parseHtml,
   textOf,
 }: typeof Html = require('../lib/html.ts') as typeof Html;
@@ -191,6 +193,87 @@ Given<PreviewWorld>('the typographer is off', function () {
 });
 
 // ---- footnotes -----------------------------------------------------------
+
+/**
+ * The words of a footnote, with the little `↩` link back to the sentence left
+ * out. It is chrome the plugin adds rather than anything the author wrote, and
+ * reading it in would put a return arrow in the middle of every expected cell.
+ */
+function noteText(item: Html.El): string {
+  const skip = (node: Html.Root): string => {
+    let text = '';
+    for (const child of node.childNodes) {
+      if ('tagName' in child) {
+        if (classesOf(child).includes('footnote-backref')) continue;
+        text += skip(child);
+      } else if (child.nodeName === '#text') {
+        text += child.value;
+      }
+    }
+    return text;
+  };
+  return skip(item).trim();
+}
+
+// The half the scenario's own name claims — "at the foot" says where, and the
+// numbering says *which* note is which, which is the part a reader would notice
+// being wrong. A footnote list is numbered by the order the sentences cite it,
+// not by the order the definitions were written, so a document that defines its
+// notes out of order has to come out renumbered.
+//
+// One table for both, because they are one claim: the label the reader sees in
+// the prose and the words they find at the foot are two halves of the same row.
+Then<PreviewWorld>('the notes are numbered in the order they are first cited:', function (
+  dataTable: DataTable
+) {
+  const expected = dataTable.hashes().map((row) => ({
+    label: row.label ?? '',
+    note: row.note ?? '',
+  }));
+
+  const root = parseHtml(this.html);
+  const refs = byClass(root, 'footnote-ref');
+  assert.ok(refs.length > 0, 'the document produced no citations at all, so this scenario proves nothing');
+
+  // By id rather than by position, because the href is the claim: a citation
+  // that pointed at the wrong note would still sit in the right place in the
+  // list.
+  const notesById = new Map<string, Html.El>();
+  for (const item of byClass(root, 'footnote-item')) {
+    const id = attrOf(item, 'id');
+    if (id !== undefined) notesById.set(id, item);
+  }
+
+  const actual: { label: string; note: string }[] = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const anchor = firstTag(ref, 'a');
+    const label = anchor === null ? '' : textOf(anchor);
+    const target = (anchor === null ? undefined : attrOf(anchor, 'href'))?.replace(/^#/, '') ?? '';
+    // A note cited by a second sentence is the same row, not a new one — the
+    // second citation is labelled `[1:1]` and would otherwise read as a second
+    // note. Keyed by the note rather than by the label for exactly that reason.
+    if (seen.has(target)) continue;
+    seen.add(target);
+    const note = notesById.get(target);
+    actual.push({ label, note: note === undefined ? '<no note with that id>' : noteText(note) });
+  }
+
+  assert.deepStrictEqual(
+    actual,
+    expected,
+    '\n  footnote mismatch\n  expected: ' + JSON.stringify(expected) +
+      '\n  actual:   ' + JSON.stringify(actual)
+  );
+});
+
+// The one cited note is the control: "the definition that was never cited is
+// not shown" is satisfied by a renderer that shows no notes at all, and the
+// scenario using this asserts the cited one is there.
+Then<PreviewWorld>('the preview shows {int} notes', function (expected: number) {
+  const found = byClass(parseHtml(this.html), 'footnote-item').length;
+  assert.strictEqual(found, expected, `expected ${expected} notes at the foot, found ${found}`);
+});
 
 Then<PreviewWorld>('the note is rendered at the foot of the page', function () {
   const footnotes = byClass(parseHtml(this.html), 'footnotes');

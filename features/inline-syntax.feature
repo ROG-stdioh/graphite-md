@@ -42,6 +42,64 @@ Feature: Inline syntax
     Then the note is rendered at the foot of the page
     Then the note links back to the sentence that cited it
 
+  # The scenario above is named "at the foot of the page" and said nothing about
+  # which note is which. A footnote list is numbered by the order the sentences
+  # cite it rather than by the order the definitions were written — which is the
+  # behaviour a reader would notice being wrong, and it is invisible to a
+  # scenario with one footnote.
+  #
+  # The definitions here are deliberately in the opposite order to the
+  # citations, so a renderer that numbered by definition order swaps the two
+  # rows. The one-citation order is in the table because it is the half that
+  # would otherwise be taken for granted.
+  Scenario: Notes are numbered in the order the sentences cite them
+    Given a markdown document:
+      """
+      First ref.[^b] Then another.[^a]
+
+      [^a]: note A
+      [^b]: note B
+      """
+    When the preview renders it
+    Then the notes are numbered in the order they are first cited:
+      | label | note   |
+      | [1]   | note B |
+      | [2]   | note A |
+
+  # A definition with no sentence pointing at it. The plugin drops it, which is
+  # the right answer — an unreferenced note has no number to be — and it is a
+  # claim only a document with a cited note beside it can make. The count is
+  # what turns "not shown" into evidence: without it, a renderer that dropped
+  # every note satisfies the same assertion.
+  Scenario: A definition that is never cited is not shown
+    Given a markdown document:
+      """
+      A ref.[^1]
+
+      [^1]: cited
+      [^2]: never cited
+      """
+    When the preview renders it
+    Then the preview shows 1 notes
+    And the preview does not show "never cited"
+
+  # The same sentence cited twice by two different sentences. One note, two
+  # citations, and both of them have to point at it — the ids invented for the
+  # second citation are what keeps the document's promise that no two elements
+  # share one.
+  Scenario: A note cited twice is one note with two citations
+    Given a markdown document:
+      """
+      Once.[^1] Again.[^1]
+
+      [^1]: the note
+      """
+    When the preview renders it
+    Then the preview shows 1 notes
+    And the notes are numbered in the order they are first cited:
+      | label | note     |
+      | [1]   | the note |
+
   # ---- the typographer ------------------------------------------------------
   # Straight quotes to curly, `--` to an en dash, `...` to an ellipsis —
   # markdown-it's typographer, and a setting here because the two previews a
