@@ -1,11 +1,14 @@
 // Runs media/preview.js against a tiny DOM double to verify the graph builder
 // lays out edges correctly at arbitrary depth, and — the larger half — the
-// messages the webview exchanges with the host. Run:
+// messages the webview exchanges with the host. At the end it also builds the
+// real page and checks the ids the webview looks up against it, which no test
+// driven by a hand-made DOM can see. Run:
 //   node scripts/graph-check.ts
 //
 // `require` rather than `import` keeps this file CommonJS, which is what lets
 // Node run it directly; the cast reattaches the module type @types/node widens
 // to `any`. See esbuild.ts for the full note.
+const esbuild = require('esbuild') as typeof import('esbuild');
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 
@@ -20,9 +23,12 @@ const { buildWebview } = require('../esbuild.ts') as { buildWebview: () => void 
 buildWebview();
 
 let failures = 0;
-const check = (name: string, cond: boolean): void => {
+const check = (name: string, cond: boolean, detail?: string): void => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);
-  if (!cond) failures++;
+  if (!cond) {
+    failures++;
+    if (detail !== undefined) console.log(`      ${detail}`);
+  }
 };
 
 type StubHandler = (event?: unknown) => void;
@@ -37,13 +43,16 @@ interface StubClassList {
 
 interface StubStyle {
   setProperty(key: string, value: string): void;
-  // The two properties this harness reads back, declared as the webview writes
-  // them (main.ts: `style.left = \`${dotX(depth)}px\``, `style.paddingLeft =
-  // \`${dotX(depth) + 18}px\``). Without these the index signature below makes
-  // every read `unknown`, and an assertion parsing one out has to either cast
-  // or stringify a value the checker can only call an Object.
+  // The properties this harness reads back, declared as the webview writes them
+  // (main.ts: `style.left = \`${dotX(depth)}px\``, `style.paddingLeft =
+  // \`${dotX(depth) + 18}px\``, and the scrollbar's `style.height`/`style.top`).
+  // Without these the index signature below makes every read `unknown`, and an
+  // assertion parsing one out has to either cast or stringify a value the
+  // checker can only call an Object.
   left?: string;
   paddingLeft?: string;
+  height?: string;
+  top?: string;
   [key: string]: unknown;
 }
 
@@ -96,6 +105,8 @@ interface StubEl {
   classList: StubClassList;
   getBoundingClientRect(): { top: number };
   closest(sel: string): StubEl | null;
+  contains(node: StubEl | null): boolean;
+  focus(): void;
 }
 
 /** Whether an element is display:none — folded away, or detached on purpose. */
@@ -103,8 +114,22 @@ function hasNoBox(el: StubEl): boolean {
   return el._detached === true || el.classList.contains('collapsed');
 }
 
+/**
+ * The element that was last focused, which `document.activeElement` answers
+ * with.
+ *
+ * Module-level because the elements are made by `makeEl` while the document
+ * object is made by `run`, so there is no one place both can see. `run` clears
+ * it, so no harness inherits the previous one's focus.
+ */
+let focusedEl: StubEl | null = null;
+
 function makeEl(tag: string): StubEl {
-  return {
+  // Named, so the one member that needs the element's own identity can refer to
+  // it: `focus()` records which element was focused. `this` would do the same
+  // job, but the linter reads storing `this` in a variable as the class-era
+  // pattern it is not, and a name is clearer at the one place it is needed.
+  const el: StubEl = {
     tag,
     id: '',
     children: [],
@@ -171,7 +196,18 @@ function makeEl(tag: string): StubEl {
     },
     getBoundingClientRect(): { top: number } { return { top: 0 }; },
     closest(): StubEl | null { return null; },
+    // The real containment, over the tree the double builds from `parentEl` —
+    // which is what `tocWrap.contains(document.activeElement)` asks when the
+    // outline folds, and the answer decides whether focus has to be moved.
+    contains(node: StubEl | null): boolean {
+      for (let el = node; el; el = el.parentEl) {
+        if (el === this) return true;
+      }
+      return false;
+    },
+    focus() { focusedEl = el; },
   };
+  return el;
 }
 
 // the tree under test: A -> B -> C -> D -> E ; A -> F ; G
@@ -214,8 +250,23 @@ const diagramsTree: StubTocNode[] = [
 
 /** The ids `run` always creates, so the tests can reach them without a lookup
  *  that `noUncheckedIndexedAccess` would make nullable. */
-type StubId = 'graphContent' | 'graphTables' | 'graphDiagrams' | 'contentPane' | 'contentInner';
-const STUB_IDS: readonly StubId[] = ['graphContent', 'graphTables', 'graphDiagrams', 'contentPane', 'contentInner'];
+type StubId =
+  | 'graphContent'
+  | 'graphTables'
+  | 'graphDiagrams'
+  | 'contentPane'
+  | 'contentInner'
+  | 'tocPaneWrap'
+  | 'outlineToggle';
+const STUB_IDS: readonly StubId[] = [
+  'graphContent',
+  'graphTables',
+  'graphDiagrams',
+  'contentPane',
+  'contentInner',
+  'tocPaneWrap',
+  'outlineToggle',
+];
 
 /** A single drawn SVG child, reduced to the attributes the assertions read. */
 interface DrawnEdge {
@@ -229,7 +280,7 @@ interface Harness {
   rows: StubEl[];
   svg: StubEl;
   drawn: DrawnEdge[];
-  document: { body: StubEl };
+  document: { body: StubEl; readonly activeElement: StubEl | null };
   handlers: Record<string, StubHandler[]>;
   // The five ids `run` always creates, named so a test can reach them directly.
   // The index signature stays for the ids a test adds itself (`fnref1`).
@@ -306,6 +357,8 @@ function run(
     graphDiagrams: ['graph', 'collapsed'],
     contentPane: [],
     contentInner: [],
+    tocPaneWrap: ['toc-pane-wrap', 'scroll-wrap'],
+    outlineToggle: ['outline-toggle'],
   };
   for (const id of STUB_IDS) {
     const el = makeEl('div');
@@ -336,10 +389,38 @@ function run(
   const accordionByView: Record<string, StubEl> = {};
   accordionHeaders.forEach((h) => { accordionByView[h.dataset.view ?? ''] = h; });
 
+  // The outline pane's real shape, which the double had no reason to model
+  // until the fold gave it one. Three things hang off it that the tests below
+  // depend on: the three graph containers, because `display:none` on an
+  // ancestor takes the layout box from every row inside it — which is the
+  // whole reason a resize while folded wipes the outline; the accordion
+  // headers, which are the focusable things inside the pane and so the only
+  // place the fold's focus handoff can be tested from; and the scrollbar parts,
+  // because attachScrollbar needs a `.scroll-wrap` back from the selector and
+  // the double answered that (and every other querySelectorAll) with `[]`, so
+  // it had never run here at all.
+  bodyEl.appendChild(byId.tocPaneWrap);
+  byId.tocPaneWrap.appendChild(byId.graphContent);
+  byId.tocPaneWrap.appendChild(byId.graphTables);
+  byId.tocPaneWrap.appendChild(byId.graphDiagrams);
+  accordionHeaders.forEach((h) => { byId.tocPaneWrap.appendChild(h); });
+  for (const className of ['scroll-body', 'scroll-track', 'scroll-thumb']) {
+    const el = makeEl('div');
+    el.className = className;
+    byId.tocPaneWrap.appendChild(el);
+  }
+
   const handlers: Record<string, StubHandler[]> = {};
+  // Cleared per run so a harness never starts life holding the previous one's
+  // focus, which is what a module-level holder would otherwise hand it.
+  focusedEl = null;
   const document = {
     documentElement: docEl,
     body: bodyEl,
+    // A getter rather than a field: `focus()` is called on the element, by code
+    // that has no reference to this object, so the value has to be read at the
+    // moment it is asked for.
+    get activeElement(): StubEl | null { return focusedEl; },
     createElement: (tag: string) => makeEl(tag),
     createElementNS: (_ns: string, tag: string) => makeEl(tag),
     getElementById: (id: string) => byId[id],
@@ -356,6 +437,10 @@ function run(
     },
     querySelectorAll: (sel: string) => {
       if (sel === '.accordion-header') return accordionHeaders;
+      // One, not two: the real page has a wrap per pane, and the content pane
+      // has none of the three parts modelled here. The outline's is the wrap
+      // this feature can hide, so it is the one worth building.
+      if (sel === '.scroll-wrap') return [byId.tocPaneWrap];
       if (sel.includes('.section-head') && spyTarget) {
         return [{ dataset: { target: spyTarget }, getBoundingClientRect: () => ({ top: 0 }), addEventListener() {} }];
       }
@@ -796,6 +881,133 @@ check('...and draws nothing into the folded ones',
 check('...without calling their folded rows lost',
   !postedLogs(rz).some((m) => m.message.includes('outline')));
 
+// ---- folding the outline pane away ----
+// The pane is a fixed-width flex item, and this control is what gives its width
+// back to the reading column. Two halves have to stay in step — the class that
+// hides it, and the announcement on the button that brings it back — and the
+// state has to survive the re-render every keystroke triggers, because the
+// whole page is rebuilt from scratch each time.
+const ob = run('');
+const togglePane = (h: Harness): void => {
+  (h.byId.outlineToggle._listeners.click ?? []).forEach((fn) => { fn(); });
+  h.flushAll();
+};
+
+check('the outline starts open', !ob.byId.tocPaneWrap.classList.contains('collapsed'));
+check('...and its control says so', ob.byId.outlineToggle.getAttribute('aria-expanded') === 'true');
+check('...announcing what a click will do', ob.byId.outlineToggle.getAttribute('aria-label') === 'Hide the outline');
+
+togglePane(ob);
+check('clicking the control folds the pane away', ob.byId.tocPaneWrap.classList.contains('collapsed'));
+check('...and the announcement turns with it', ob.byId.outlineToggle.getAttribute('aria-expanded') === 'false');
+check('...now naming the way back', ob.byId.outlineToggle.getAttribute('aria-label') === 'Show the outline');
+
+// Through the store rather than through a hand-written object: the field the
+// fold writes and the field the next page reads have to be the same one, and a
+// harness handed its own state would agree with a persistState() that wrote
+// nothing at all. The double's setState replaces what it holds, so a field that
+// stopped being written comes back `undefined` rather than as its old value.
+const ob2 = run('', { state: ob.state });
+check('a re-render brings the folded pane back folded',
+  ob2.byId.tocPaneWrap.classList.contains('collapsed')
+  && ob2.byId.outlineToggle.getAttribute('aria-expanded') === 'false');
+
+// Folding takes the pane out of the rendering, and an element inside a
+// `display:none` subtree cannot hold focus — the browser moves it to the body,
+// which drops a keyboard reader at the top of the document. The control that
+// closed the pane is where they can carry on from.
+const fo = run('');
+const foContent = fo.accordionByView.content;
+if (!foContent) throw new Error('the harness built no Content accordion header to focus');
+foContent.focus();
+togglePane(fo);
+check('folding the pane hands focus to the control that closed it',
+  fo.document.activeElement === fo.byId.outlineToggle);
+// The other half, and the reason the handoff is a `contains` check rather than
+// an unconditional focus(): folding must not reach out and take focus from
+// somewhere else on the page.
+const fb = run('');
+fb.byId.contentPane.focus();
+togglePane(fb);
+check('...and leaves focus alone when it was somewhere else',
+  fb.document.activeElement === fb.byId.contentPane);
+
+// A resize while the pane is folded is what empties the outline, and the
+// emptying is the browser's own doing rather than something this test arranged:
+// the window listener redraws all three graphs, and a graph whose rows sit
+// inside a `display:none` pane lays out none of them. drawGraph clears its svg
+// before it gives up, so what the fold would come back to is a blank corner
+// with nothing logged. The check in the middle is what makes the emptying the
+// resize's doing and not the fold's.
+//
+const re = run('');
+togglePane(re);
+check('folding the pane hides the outline without wiping it',
+  drawnIn(re.byId.graphContent).length > 0);
+(re.winHandlers.resize ?? []).forEach((h) => { h(); });
+re.flushAll();
+check('a resize while the pane is folded leaves the outline empty',
+  drawnIn(re.byId.graphContent).length === 0);
+togglePane(re);
+check('reopening the pane draws the outline again',
+  drawnIn(re.byId.graphContent).length > 0);
+check('...without reporting its rows lost', !postedLogs(re).some((m) => m.message.includes('outline')));
+
+// And the same for a view whose accordion the reader had opened, which is what
+// makes redrawing all three graphs the right answer rather than redrawing the
+// one. Only Content is drawn at init; Tables and Diagrams draw when their
+// accordion opens, and the accordion's state does not survive a reload — so a
+// pane folded with Tables open is a page with lines to lose that no init-time
+// draw would put back.
+const rt = run('');
+clickAccordion(rt, 'tables');
+check('the Tables view is drawn once its accordion opens',
+  drawnIn(rt.byId.graphTables).length > 0);
+togglePane(rt);
+(rt.winHandlers.resize ?? []).forEach((h) => { h(); });
+rt.flushAll();
+check('a resize while the pane is folded empties the Tables view too',
+  drawnIn(rt.byId.graphTables).length === 0);
+togglePane(rt);
+check('reopening the pane draws the Tables view that was left open',
+  drawnIn(rt.byId.graphTables).length > 0);
+
+// ---- a scrollbar asked to sync while its pane is hidden ----
+// The defect the fold creates: `display:none` measures as zero everywhere, and
+// `0/0` is NaN — which does not throw. The thumb is handed the literal "NaNpx"
+// for its height and its position, the style system takes both and applies
+// neither, and the bar comes back from the fold invisible with nothing logged.
+// The window resize listener is what reaches a hidden wrap: it fires whether or
+// not the pane is showing.
+const sb = run('');
+const sbBody = sb.byId.tocPaneWrap.querySelector('.scroll-body');
+const sbTrack = sb.byId.tocPaneWrap.querySelector('.scroll-track');
+const sbThumb = sb.byId.tocPaneWrap.querySelector('.scroll-thumb');
+if (!sbBody || !sbTrack || !sbThumb) throw new Error('the outline pane is missing a scrollbar part');
+// Geometry the double has to be told, because it has no layout engine: a
+// 100px-tall view of 200px of content, sitting at the halfway point, in a
+// 200px track.
+sbBody.clientHeight = 100;
+sbBody.scrollHeight = 200;
+sbBody.scrollTop = 50;
+sbTrack.clientHeight = 200;
+(sb.winHandlers.resize ?? []).forEach((h) => { h(); });
+// The positive control comes first, so "wrote nothing" below cannot be
+// satisfied by a sync that never writes: 100/200 of the track is 100px, and
+// halfway down the remaining 100px is 50px.
+check('an open scrollbar lays its thumb out as a fraction of the track',
+  sbThumb.style.height === '100px' && sbThumb.style.top === '50px');
+// What `display:none` measures as in a real layout.
+sbBody.clientHeight = 0;
+sbBody.scrollHeight = 0;
+sbBody.scrollTop = 0;
+sbTrack.clientHeight = 0;
+sbThumb.style.height = '';
+sbThumb.style.top = '';
+(sb.winHandlers.resize ?? []).forEach((h) => { h(); });
+check('a scrollbar synced while its pane is hidden writes nothing at all',
+  sbThumb.style.height === '' && sbThumb.style.top === '');
+
 // ---- contentWidth message -> CSS variable ----
 const cw = run('');
 (cw.winHandlers.message ?? []).forEach((h) => { h({ data: { type: 'contentWidth', value: 80 } }); });
@@ -1051,6 +1263,53 @@ check('the host guard rejects a log with no message',
 check('the host guard rejects an unknown type', !isWebviewToHost({ type: 'nope' }));
 check('the host guard rejects a bare string', !isWebviewToHost('toggleTask'));
 check('the host guard rejects null', !isWebviewToHost(null));
+
+// ---- every id the webview looks up is one the page actually has ----
+// main.ts reaches its elements by id, and `byId` throws when one is missing —
+// at load, before anything is drawn, so a renamed id in the markup turns the
+// whole preview into a blank panel with one error in a console nobody has open.
+// Nothing above can see this: the double builds its own elements from STUB_IDS,
+// so it would go on passing while the real page had lost the id. This is the
+// one check that reads the page the extension actually serves.
+const htmlBundle = path.join(__dirname, '..', 'out', 'webview-html.bundle.js');
+// buildSync rather than the async build: every check in this file is
+// synchronous, and making the file async to await one build would mean making
+// every check async with it.
+esbuild.buildSync({
+  entryPoints: [path.join(__dirname, '..', 'src', 'webviewHtml.ts')],
+  bundle: true,
+  outfile: htmlBundle,
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  logLevel: 'silent',
+});
+const { buildWebviewHtml } = require(htmlBundle) as typeof import('../src/webviewHtml');
+const page = buildWebviewHtml({
+  mediaDir: path.join(__dirname, '..', 'media'),
+  toWebviewUri: (absPath: string) => `https://webview.test/${path.basename(absPath)}`,
+  cspSource: 'https://webview.test',
+  remoteImages: false,
+  contentWidth: 60,
+  bodyHtml: '<p>body</p>',
+  headings: [],
+  tables: [],
+  diagrams: [],
+});
+const idsInPage = new Set([...page.matchAll(/\sid="([^"]*)"/g)].map((m) => m[1] ?? ''));
+// Read out of the source rather than listed here, so an id added to the
+// webview is covered the moment it is written. The count guard is the other
+// half: a pattern that stopped matching would leave this checking nothing.
+const lookedUp = [
+  ...fs
+    .readFileSync(path.join(__dirname, '..', 'src', 'webview', 'main.ts'), 'utf8')
+    .matchAll(/byId\('([^']+)'\)/g),
+].map((m) => m[1] ?? '');
+check(
+  `the page carries every id the webview looks up (${lookedUp.length} found)`,
+  lookedUp.length > 0 && lookedUp.every((id) => idsInPage.has(id)),
+  `      the page is missing: ${lookedUp.filter((id) => !idsInPage.has(id)).join(', ')}`
+);
 
 console.log(failures === 0 ? '\nAll graph checks passed.' : `\n${failures} graph check(s) FAILED.`);
 process.exitCode = failures === 0 ? 0 : 1;
