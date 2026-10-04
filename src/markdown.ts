@@ -138,6 +138,47 @@ try {
 } catch (err) {
   log.error('failed to register markdown-it-texmath, math rendering will be disabled', err);
 }
+
+// texmath's `$…$` rule lets the closing delimiter be any later `$` that its own
+// guard accepts, and its guard only looks at the characters *outside* the pair.
+// So in `It costs $5, and $x^2$ is the area.` the price's `$` opens a span, the
+// formula's opening `$` closes it, and `5, and $x^2` is handed to KaTeX as TeX —
+// a red error box where the sentence was, and no maths at all (#38).
+//
+// The narrower rule is the one VS Code's preview uses (extensions/markdown-math
+// with @vscode/markdown-it-katex): the closing delimiter has to be the *next*
+// `$`, and a `$` whose next `$` cannot legally close it is not an opener — the
+// scan resumes at that next `$` instead of running past it. `$5` therefore stays
+// prose and `$x^2$` still typesets.
+//
+// Expressed as a regexp by forbidding a bare `$` inside the content, which is
+// what "the closer is the next `$`" means for a single match. `\$` stays
+// allowed, because an escaped dollar is not a delimiter: KaTeX reads it as a
+// literal `$`, and VS Code skips it when hunting for the closer too. The rest of
+// the rule — the guards, the template, the tag — is texmath's, taken from the
+// same object the plugin registered rather than restated, so nothing but the
+// one regexp can drift.
+try {
+  const dollarInline = texmath.rules.dollars?.inline.find((rule) => rule.name === 'math_inline');
+  // `ruler.at` throws when the rule is absent, and it is absent whenever the
+  // registration above failed — so this cannot assume the plugin loaded. Hence
+  // the same try/catch the registrations get: the failure mode is "prices before
+  // a formula swallow it again", which is bad but is not a dead extension.
+  if (!dollarInline) throw new Error('texmath carries no `math_inline` rule for dollars');
+  md.inline.ruler.at(
+    'math_inline',
+    texmath.inline({
+      ...dollarInline,
+      // Same shape as texmath's own `\$((?:[^\s\\])|(?:\S.*?[^\s\\]))\$`, with
+      // `.` — which crosses a `$` — replaced by a pair of alternatives that
+      // between them cannot: an escape sequence, or a character that is neither
+      // `$` nor a backslash. Its own `$$…$$` rule already excludes `$` this way.
+      rex: /\$((?:[^\s\\])|(?:\S(?:\\[\s\S]|[^$\\])*?[^\s\\]))\$/gy,
+    })
+  );
+} catch (err) {
+  log.error('failed to narrow the `$…$` rule; a price may swallow the next formula', err);
+}
 try {
   md.use(markdownItSup); // ^2^
 } catch (err) {
