@@ -383,6 +383,57 @@ Then<PreviewWorld>('the preview renders it as math', function () {
   assert.ok(byClass(parseHtml(this.html), 'katex').length > 0, 'expected KaTeX output');
 });
 
+// How many formulas, which is what tells "this is maths" apart from "this is the
+// maths I wrote and nothing else is". A dollars-delimited renderer is one bad
+// rule away from reading a price as an opening delimiter, and a page with the
+// right formula on it looks identical either way until you count.
+function expectMaths(this: PreviewWorld, expected: number): void {
+  const found = byClass(parseHtml(this.html), 'katex').length;
+  assert.strictEqual(found, expected, `expected ${expected} piece(s) of maths, found ${found}`);
+}
+Then<PreviewWorld>('the preview typesets {int} pieces of math', expectMaths);
+Then<PreviewWorld>('the preview typesets {int} piece of math', expectMaths);
+
+// The half of the count that the count cannot see. A `$…$` KaTeX refused is a
+// `katex-error` span and *not* a `katex` one, so a page where the reader's prose
+// was handed to KaTeX and came back as a red error box passes `expectMaths`
+// untouched. Kept as its own step rather than folded into the count, because the
+// malformed-maths scenario wants the opposite assertion and would have to opt
+// out of it.
+Then<PreviewWorld>('the preview marks no math as bad', function () {
+  const flagged = byClass(parseHtml(this.html), 'katex-error').length;
+  assert.strictEqual(flagged, 0, `expected no KaTeX errors, found ${flagged}`);
+});
+
+// The TeX the reader's formula was written in, read back off KaTeX's own
+// annotation element. The step above says something typeset; this says *what*,
+// and the two failures it separates are a formula that rendered as the wrong
+// formula and a `$…$` that never became maths at all — both of which leave a
+// page with KaTeX output on it.
+//
+// Trimmed, because display maths keeps the newlines that surrounded it in the
+// source and no scenario wants to write those down.
+Then<PreviewWorld>('the math typeset on the page reads {string}', function (expected: string) {
+  const annotations = byTag(parseHtml(this.html), 'annotation').map((el) => textOf(el).trim());
+  assert.ok(
+    annotations.includes(expected),
+    `expected the maths ${JSON.stringify(expected)} on the page; KaTeX was handed ` +
+      JSON.stringify(annotations)
+  );
+});
+
+// `renders it as math` and this are not the same claim, and the difference is
+// the half that gets forgotten: display-mode output wraps a `.katex` span, so
+// every assertion of the weaker step is satisfied by a renderer that made all
+// maths display. This is the one that says the delimiters went to the right
+// places.
+Then<PreviewWorld>('the preview renders it as inline math', function () {
+  const root = parseHtml(this.html);
+  assert.ok(byClass(root, 'katex').length > 0, 'expected KaTeX output');
+  const display = byClass(root, 'katex-display').length;
+  assert.strictEqual(display, 0, `expected inline maths, found ${display} in display mode`);
+});
+
 Then<PreviewWorld>('the preview renders it as displayed math', function () {
   assert.ok(
     byClass(parseHtml(this.html), 'katex-display').length > 0,
