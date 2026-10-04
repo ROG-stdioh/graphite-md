@@ -188,6 +188,54 @@ Then<PreviewWorld>('every quote is rendered as a callout', function () {
   }
 });
 
+/** The tags whose text belongs to a *different* quote than the one being read. */
+const NESTED_QUOTE: ReadonlySet<string> = new Set(['blockquote']);
+
+// A quote holding another quote. The count above is satisfied by two quotes
+// sitting side by side, and "every quote is a callout" is satisfied by both of
+// them being top-level, so the nesting needs a claim of its own.
+function expectNestedQuotes(this: PreviewWorld, expected: number): void {
+  const quotes = byTag(parseHtml(this.html), 'blockquote');
+  const nested = quotes.filter((quote) => byTag(quote, 'blockquote').length > 0);
+  assert.strictEqual(
+    nested.length,
+    expected,
+    `expected ${expected} quotes nested inside a quote, found ${nested.length}`
+  );
+}
+Then<PreviewWorld>('the preview shows {int} quotes nested inside a quote', expectNestedQuotes);
+Then<PreviewWorld>('the preview shows {int} quote nested inside a quote', expectNestedQuotes);
+
+// What the quote says in its own voice, with any quote nested inside it left
+// out. `the text ... is rendered inside the quote` cannot tell the two apart:
+// the outer quote's `textOf` runs its own words and the inner quote's together,
+// so "outer" being inside a quote is true whether the nesting is right or the
+// renderer flattened it.
+//
+// Exactly one quote may be outermost, because the document this is written for
+// has exactly one — with two, "the outermost quote" names nothing in particular
+// and the assertion would be about whichever came first.
+Then<PreviewWorld>('the outermost quote reads {string}', function (expected: string) {
+  const quotes = byTag(parseHtml(this.html), 'blockquote');
+  const outermost = quotes.filter(
+    (quote) => !quotes.some((other) => other !== quote && byTag(other, 'blockquote').includes(quote))
+  );
+  assert.strictEqual(
+    outermost.length,
+    1,
+    `expected exactly one outermost quote to read ${JSON.stringify(expected)} from; ` +
+      `the page has ${outermost.length}`
+  );
+  const quote = outermost[0];
+  assert.ok(quote, 'expected an outermost quote');
+  const reads = textExcluding(quote, NESTED_QUOTE).trim();
+  assert.strictEqual(
+    reads,
+    expected,
+    `the outermost quote reads ${JSON.stringify(reads)}, expected ${JSON.stringify(expected)}`
+  );
+});
+
 // The two halves of "the quote ends where it ends". A heading or a list inside
 // a quote is where the rule that adds the class went wrong once: it split the
 // open and close tokens across two sections, and the browser repaired the
