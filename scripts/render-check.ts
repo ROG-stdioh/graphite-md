@@ -20,6 +20,40 @@ const root = path.join(__dirname, '..');
 const bundle = path.join(root, 'out', 'render-check.bundle.js');
 const sample = path.join(root, 'samples', 'kitchen-sink.md');
 
+// The tags whose opening and closing counts have to agree, shared by the two
+// checks that use them: the kitchen sink, where each one also has to be present
+// at all, and every other sample, where it only has to pair if it appears.
+const BALANCED_TAGS = [
+  'div',
+  'section',
+  'blockquote',
+  'ul',
+  'ol',
+  'table',
+  'pre',
+  'p',
+  'li',
+  'sup',
+  'sub',
+  'mark',
+  'ins',
+  'span',
+  'kbd',
+  'abbr',
+  'dl',
+  'dt',
+  'dd',
+  'details',
+  'summary',
+  'figure',
+  'figcaption',
+  'script',
+  'form',
+  'iframe',
+  'video',
+  'audio',
+];
+
 async function main(): Promise<void> {
   await esbuild.build({
     entryPoints: [path.join(root, 'src', 'markdown.ts')],
@@ -481,10 +515,57 @@ async function main(): Promise<void> {
   // `<table>` fails here and says so by name. `<source>` is deliberately absent:
   // it is void, so an opening and a closing tag can never be counted for it, and
   // the resolver check above covers it instead.
-  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe', 'video', 'audio']) {
+  for (const tag of BALANCED_TAGS) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
     check(`tag balance <${tag}> (${open} open / ${close} close)`, open > 0 && open === close);
+  }
+
+  // ---- every sample, not just the kitchen sink -------------------------------
+  // The other four files are what someone opens to try the extension, so the
+  // invariants checked here are the ones a reader would notice if they broke:
+  // the document renders at all, it has a title, every internal link goes
+  // somewhere, and no element is left unclosed. The kitchen sink checks above
+  // are about what that one document contains; these hold for all of them.
+  const samplesDir = path.join(root, 'samples');
+  const decodeAnchor = (raw: string): string => {
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      // A hand-written `%` that is not an escape is left as written, which is
+      // also what the browser does with it.
+      return raw;
+    }
+  };
+  const walkTargets = (nodes: TocNode[]): string[] =>
+    nodes.flatMap((n) => [n.target, ...walkTargets(n.children ?? [])]);
+  for (const file of fs
+    .readdirSync(samplesDir)
+    .filter((f: string) => f.endsWith('.md'))
+    .sort()) {
+    const page = renderMarkdown(fs.readFileSync(path.join(samplesDir, file), 'utf8'));
+    const ids = new Set([...page.html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1] ?? ''));
+    // A fragment is matched against ids after percent-decoding — that is what
+    // makes `#café` reach `id="café"` even though markdown-it wrote the href as
+    // `#caf%C3%A9`. Decoding here is the browser's rule, not a convenience.
+    const dangling = [...page.html.matchAll(/href="#([^"]+)"/g)]
+      .map((m) => decodeAnchor(m[1] ?? ''))
+      .filter((anchor) => !ids.has(anchor));
+    // Every entry the outline draws is a link, so a target that is not on the
+    // page is a row that looks clickable and is not — for a heading, a table or
+    // a diagram alike.
+    const missingTargets = [...walkTargets(page.headings), ...page.tables.map((t) => t.target), ...page.diagrams.map((d) => d.target)].filter(
+      (target) => !ids.has(target)
+    );
+    const unbalanced = BALANCED_TAGS.filter((tag) => {
+      const open = (page.html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
+      const close = (page.html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
+      return open !== close;
+    });
+    check(`${file}: renders with a title`, /<h1 class="doc-title">/.test(page.html));
+    check(`${file}: no anchor is left dangling`, dangling.length === 0);
+    check(`${file}: every outline, table and diagram target is on the page`, missingTargets.length === 0);
+    check(`${file}: every tag balances`, unbalanced.length === 0);
   }
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);

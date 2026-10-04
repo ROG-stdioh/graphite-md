@@ -10,7 +10,8 @@ operator runs `basalt-admin rebalance`, watches the output, and intervenes when 
 
 This RFC replaces that with a loop that runs inside the coordinator. It plans moves from
 observed disk pressure, executes at most a fixed number at a time, and can be stopped and
-resumed without ever leaving a shard in two places at once.
+resumed without ever leaving a shard in two places at once. The design is in
+[Design](#design); the parts that need a decision are in [Open questions](#open-questions).
 
 ## Motivation
 
@@ -41,7 +42,7 @@ with the rest of the cluster metadata. A node advertises its own free space on e
 heartbeat; the coordinator does not probe.
 
 | Signal | Source | Refresh |
-| --- | --- | --- |
+| :--- | :--- | ---: |
 | Disk utilisation | Node heartbeat | 10s |
 | Shard size | Compaction manifest | per compaction |
 | Write rate | Coordinator histogram | 30s |
@@ -81,6 +82,23 @@ func (p *Planner) Next(now time.Time) (Move, bool) {
 the protocol handles any number — it is about leaving headroom for foreground traffic. A
 move competes with compaction and with the write path for the same disks.
 
+<details>
+<summary>The defaults, in full</summary>
+
+```toml
+[rebalancing]
+enabled            = false        # flag-gated, per cluster
+max_concurrent     = 1            # capped at 3
+threshold          = 0.15         # pressure difference worth the I/O
+tick               = "30s"
+drain_timeout      = "5m"         # abort the move rather than hold writes open
+```
+
+The values are the ones we intend to ship; the tick and the drain timeout are the two we
+expect to revisit after the first clusters run with the loop enabled.
+
+</details>
+
 > **Threshold tuning matters more than the algorithm does.** Set it too low and the cluster
 > never stops moving data, spending its whole I/O budget shuffling shards that are already
 > balanced. Set it too high and nodes fill up before the planner notices. Start at 0.15 and
@@ -90,12 +108,23 @@ move competes with compaction and with the write path for the same disks.
 
 A move has three phases, and only the last one is destructive.
 
-1. **Copy.** The destination streams the shard and reports progress. The source keeps serving
-   reads and writes. Nothing is committed.
-2. **Drain.** The source stops accepting writes for the shard and flushes what it has. This is
-   the only window where the shard is unavailable, and it is bounded by the flush, not by the
-   shard size.
+1. **Copy.** The destination streams the shard and reports progress.
+   - The source keeps serving reads and writes.
+   - Nothing is committed, so failing here costs only the I/O already spent.
+2. **Drain.** The source stops accepting writes for the shard and flushes what it has.
+   - This is the only window where the shard is unavailable.
+   - It is bounded by the flush, not by the shard size, which is why the timeout is a
+     timeout and not a size limit.
 3. **Commit.** The coordinator writes the new placement to raft and the source deletes its copy.
+
+```mermaid
+graph TD
+    Move[Move planned] --> Copy["Copy: source keeps serving"]
+    Copy -- streamed --> Drain["Drain: writes paused"]
+    Drain -- flushed --> Commit["Commit: placement in raft"]
+    Copy -- failure --> Stay[Shard stays on the source]
+    Drain -- failure --> Stay
+```
 
 A failure in phase 1 or 2 leaves the shard exactly where it was. A coordinator crash after
 the raft write in phase 3 leaves a stale copy on the source, which the next reaper pass

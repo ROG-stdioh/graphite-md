@@ -17,7 +17,8 @@ customers have replicas that are slow, not dead~~ ++the replicas that hurt you a
 that answer late, not the ones that stop answering++. A dead replica drops out of the quorum
 and costs nothing. A slow one stays in it, and every read that touches it waits.
 
-3.0 is the release where we stopped treating those as the same failure.
+3.0 is the release where we stopped treating those as the same failure — [what shipped](#what-shipped)
+is four changes, and only one of them is in the read path.
 
 ## The problem
 
@@ -36,12 +37,24 @@ liveness, so a replica answering in 400 ms leaves the quorum the same way a dead
   missed heartbeats.
 - **Hedged reads, off by default.** Issue to ~r~ + 1 replicas and take the first ~r~ answers.
   Costs about 38% more read load; pulls p~99~ down by roughly half.
+  - Off by default because the load increase is real and the win is tail-only.
+  - Enable it per cluster with `basalt-admin cluster config set hedged_reads true`.
 - **Shard rebalancing in the coordinator.** No more hand-picking shards when you add a node.[^1]
 - **Streaming snapshots.** A backup no longer needs the disk headroom of a full copy.
 
 We sustained 10^6^ writes per second on a nine-node cluster during the benchmark, with p~99~
 write latency under 9 ms. ==Confirm the node count — the run I saw was five nodes, and the
 nine-node number came from the pre-release build.==
+
+| Metric | 2.x | 3.0 | Change |
+| :--- | ---: | ---: | ---: |
+| p50 read latency | 1.9 ms | 1.9 ms | unchanged |
+| p99 read latency | 5.4 ms | 2.8 ms | −48% |
+| p99 write latency | 12.0 ms | 8.7 ms | −27% |
+| Read load, hedged | n/a | +38% | by design |
+
+==Every number in this table needs to come from the same run and the same cluster shape.
+Right now the read row is from the quorum note, which was five nodes.==
 
 ## Closing
 
