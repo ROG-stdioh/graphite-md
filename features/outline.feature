@@ -147,6 +147,10 @@ Feature: The outline pane
       """
     When the preview renders it
     Then the outline lists 0 tables
+    # The control: the table *is* on the page, as code, which is the only reason
+    # its absence from the pane means anything. Without this line the scenario
+    # passes for a document that rendered nothing at all.
+    And the code shows the literal text "<table>"
 
   Scenario: A table written before the first heading belongs to no section
     Given a markdown document:

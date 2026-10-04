@@ -30,6 +30,20 @@ Feature: Rendering someone else's document
     Then the onclick attribute is passed through as markup
     And the page allows scripts only from a nonce it issued itself
 
+  # The policy signs the page's own scripts and nothing else. A `<script src>`
+  # the document itself loads is refused by the same directive that lets the
+  # preview run — and it is the case that keeps the check above honest, because
+  # the page's scripts and the document's are both script tags with a src and
+  # only one of them should carry the nonce.
+  Scenario: A script the document loads is not signed with the page's nonce
+    Given a markdown document:
+      """
+      <script src="https://example.com/x.js"></script>
+      """
+    When the preview renders it
+    Then the script element is passed through as markup
+    And the page allows scripts only from a nonce it issued itself
+
   Scenario: An iframe cannot load
     Given a markdown document:
       """
