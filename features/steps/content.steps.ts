@@ -423,6 +423,31 @@ Then<PreviewWorld>('{string} is an email link', function (text: string) {
 // direction that matters here: the check would have passed for a document whose
 // script was commented out.
 
+// The count of an element, which is the shape most of the escaping claims need.
+// "at least one `<b>`" is satisfied by a renderer that escaped nothing as well
+// as by one that escaped everything — the point of these scenarios is usually
+// that a tag is live in one place on the page and *only* in that place, and
+// that is a count.
+function expectElements(this: PreviewWorld, expected: number, tag: string): void {
+  const found = byTag(parseHtml(this.html), tag).length;
+  const message =
+    expected === 0
+      ? `expected no <${tag}> element, but ${found} reached the page`
+      : `expected ${expected} <${tag}> element(s), found ${found}`;
+  assert.strictEqual(found, expected, message);
+}
+Then<PreviewWorld>('the preview shows {int} {word} elements', expectElements);
+Then<PreviewWorld>('the preview shows {int} {word} element', expectElements);
+
+// The whole page's text, exactly. `the preview shows the text` is a containment
+// test, which cannot see the failure this is for: a document whose `&amp;` was
+// escaped twice reads `&amp;`, and that string contains the `&` the scenario
+// asked for.
+Then<PreviewWorld>("the preview's text is exactly {string}", function (expected: string) {
+  const text = textOf(parseHtml(this.html)).trim();
+  assert.strictEqual(text, expected, `the page reads ${JSON.stringify(text)}`);
+});
+
 Then<PreviewWorld>('the {word} element is passed through as markup', function (tag: string) {
   const found = byTag(parseHtml(this.html), tag).length;
   assert.ok(
