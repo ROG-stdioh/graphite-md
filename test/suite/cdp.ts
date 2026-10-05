@@ -25,7 +25,7 @@ import * as assert from 'assert';
  */
 
 /** The port `.vscode-test.mjs` launches the editor with. */
-export const DEBUG_PORT = 9333;
+const DEBUG_PORT = 9333;
 
 /** The extension id the preview's iframe target names in its own URL. */
 const EXTENSION_ID = 'rog-stdioh.graphite-md';
@@ -251,15 +251,53 @@ export async function evaluate<T>(expression: string): Promise<T> {
  * later. Every test here is a race against one of those, and polling is how the
  * race is won without a sleep long enough to be wrong on a slow machine.
  *
+ * Truthy, not "not nothing": `0` is the value most of these expressions answer
+ * while they wait — a count of rows that have not been drawn yet — and the first
+ * version of this tested only for null, undefined and false, so every count
+ * returned on its first poll and the assertion ran against an empty page. A
+ * caller that genuinely wants zero wants `evaluate`, not a poll.
+ *
  * An expression that throws is not a "not yet": the loop lets it out.
  */
 export async function waitFor<T>(what: string, expression: string, timeoutMs = 20_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = await evaluate<T | null>(expression);
-    if (value !== null && value !== undefined && value !== false) return value;
+    if (value) return value;
     if (Date.now() >= deadline) assert.fail(`timed out after ${timeoutMs}ms waiting for ${what}`);
     await sleep(100);
+  }
+}
+
+/**
+ * Wait until the page stops being replaced.
+ *
+ * The host renders on more than one trigger — a panel opening, a panel becoming
+ * visible, the active editor changing — and a test that opens a document fires
+ * several of them before it touches anything. Each render assigns
+ * `webview.html`, and a new page is a new document: an assertion that lands in
+ * the gap reads a page that is still assembling itself, where the content pane
+ * is empty (nothing overflows it) and a click has no handler behind it yet. That
+ * is a failure that reads exactly like a broken feature, which is the worst kind
+ * for a test to report.
+ *
+ * `performance.timeOrigin` is fixed per document, so two readings of it that
+ * agree say the page under the assertions is the page that will still be there
+ * when they run. Polled rather than slept through, because how many renders a
+ * given setup triggers is not something the test should have to know.
+ */
+export async function settle(quietMs = 150): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  let seen = await evaluate<number>('performance.timeOrigin');
+  for (;;) {
+    await sleep(quietMs);
+    const now = await evaluate<number>('performance.timeOrigin');
+    if (now === seen) return;
+    // Bounded, because a page replaced faster than it can be observed is not a
+    // slow machine but a render loop — and saying that beats a mocha timeout,
+    // which would name the test and not the cause.
+    if (Date.now() >= deadline) assert.fail('the preview was still being re-rendered 15s after it was opened');
+    seen = now;
   }
 }
 
