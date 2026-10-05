@@ -370,7 +370,7 @@
     <!-- ============================= README TAB ============================= -->
     <div class="page active" id="page-readme">
       <!-- Keep in sync with the "version" field in package.json -->
-      <span class="badge">v0.0.2</span>
+      <span class="badge">v0.3.0</span>
       <h1>graphite.md</h1>
       <p>A Markdown preview for people who read a lot of Markdown: collapsible sections, a git-graph style outline, checklists, math, and diagrams — in a dark, distraction-free theme.</p>
 
@@ -387,6 +387,10 @@
         <li><strong>Diagrams</strong> — every diagram, same idea</li>
       </ul>
       <p>Only one view is open at a time. Click any node to soft-scroll to that part of the document; the outline highlights where you are as you scroll.</p>
+      <p>It also folds away when you want the width back — the chevron in the preview's top-right corner, <strong>graphite.md: Toggle Outline</strong> from the Command Palette, or <kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>O</kbd>. With the pane gone the reading column takes the whole width and your text re-wraps to match, and which panels you folded is remembered per preview.</p>
+
+      <h3>Front matter, as a table</h3>
+      <p>A YAML block at the top of a document — a title, a date, tags — arrives as key/value rows rather than as a stray heading in the outline, the same treatment VS Code's own preview gives it. Front matter that won't parse is reported as an error block instead of half a table.</p>
 
       <h3>Checklists</h3>
       <p>Write <code>- [ ]</code> and <code>- [x]</code> as usual. In the preview they render as real, clickable checkboxes — checking one off edits your markdown file directly, so your task list and your document never drift apart.</p>
@@ -397,11 +401,17 @@
       <h3>Diagrams</h3>
       <p>Fenced <code>```mermaid</code> code blocks render as live diagrams.</p>
 
+      <h3>Images</h3>
+      <p><code>![alt](diagram.png)</code> renders, resolved against the document it is written in — so a file in a subfolder finds the pictures beside it, and one that reaches up a level works whenever you have that folder open. Images from the network are a separate matter, and off by default; see Settings below.</p>
+
       <h3>Callouts</h3>
       <p>Blockquotes (<code>&gt;</code>) get a distinct treatment so notes and asides stand out from body text.</p>
 
       <h3>Rich inline syntax</h3>
       <p>Superscript (<code>^2^</code>), subscript (<code>~2~</code>), underline (<code>++text++</code>), highlighting (<code>==text==</code>), strikethrough (<code>~~text~~</code>), and footnotes (<code>[^1]</code>) all render natively.</p>
+
+      <h3>Raw HTML renders</h3>
+      <p><code>&lt;mark&gt;</code>, <code>&lt;kbd&gt;</code>, <code>&lt;details&gt;</code>, a hand-written <code>&lt;table&gt;</code>, an <code>&lt;img&gt;</code> pointing at a file beside the document — markup you write arrives as markup, the same way VS Code's own Markdown preview treats it, rather than as visible angle brackets. What does <em>not</em> run is script: <code>&lt;script&gt;</code>, an <code>onclick=</code> attribute and an <code>&lt;iframe&gt;</code> are all refused by the preview's Content-Security-Policy, and a <code>&lt;form&gt;</code> can't post anywhere. The boundary is the policy, not the renderer.</p>
 
       <h3>Links that go where you meant them to</h3>
       <p>A relative link opens the file it points at, resolved against the document you're previewing — the same way VS Code's own Markdown preview resolves it. Absolute URLs open in your browser. And a bare filename stays a filename: <code>README.md</code> in a sentence is not turned into a link to <code>http://README.md</code>, which matters because plenty of country domains (<code>.md</code>, <code>.sh</code>, <code>.rs</code>, <code>.pl</code>, <code>.so</code>, <code>.cc</code>) are also file extensions.</p>
@@ -418,14 +428,18 @@
       <h2>Usage</h2>
       <ol>
         <li>Open a <code>.md</code> file.</li>
-        <li>Run <strong>graphite.md: Open Preview to the Side</strong> from the Command Palette, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> <kbd>V</kbd> (<kbd>Cmd</kbd>+<kbd>K</kbd> <kbd>V</kbd> on macOS).</li>
+        <li>Run <strong>graphite.md: Open Preview to the Side</strong> from the Command Palette, or press <kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>S</kbd>. <kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>P</kbd> opens the preview in the current editor group instead, and <kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>O</kbd> folds the outline pane away.</li>
         <li>The preview updates live as you type.</li>
       </ol>
+      <p>If the preview ever misbehaves, the <strong>graphite.md</strong> output channel is where to look — run <strong>graphite.md: Show Output</strong> from the Command Palette, or pick it from the dropdown in the Output panel. It records which version you're on, every preview opened and closed, every render with how long it took and what it found, and every image the preview declined to load with the reason it declined.</p>
 
       <h2>Settings</h2>
       <table>
         <tr><th>Setting</th><th>Type</th><th>Default</th><th>Description</th></tr>
         <tr><td><code>graphiteMd.contentWidth</code></td><td>number (40–100)</td><td><code>60</code></td><td>Width of the reading column, as a percentage of the available preview pane width.</td></tr>
+        <tr><td><code>graphiteMd.remoteImages</code></td><td>boolean</td><td><code>false</code></td><td>Load images from the network. Off by default — images stored beside the document always work, and turning this on lets any document you preview make requests to servers its author picked.</td></tr>
+        <tr><td><code>graphiteMd.typographer</code></td><td>boolean</td><td><code>true</code></td><td>Turn what you typed into its typographic forms: straight quotes become curly, <code>--</code> becomes an en dash, <code>...</code> becomes an ellipsis. Code is never touched. VS Code's own preview has the same option (<code>markdown.preview.typographer</code>) with it off — so this is the one setting where the two previews disagree by default.</td></tr>
+        <tr><td><code>graphiteMd.animation</code></td><td>boolean</td><td><code>true</code></td><td>Animate the outline as it folds and unfolds. Turn it off for an instant fold, which is worth doing if you read in a narrow window: the reading column keeps its share of the width while the pane moves, so an animated fold re-wraps the text under you for its length. Either way the fold follows the system's "reduce motion" setting.</td></tr>
       </table>
 
       <h2>Requirements</h2>
@@ -433,10 +447,14 @@
 
       <h2>Known limitations</h2>
       <ul>
+        <li>Images from the network (<code>https://…</code>) don't load unless you turn on <code>graphiteMd.remoteImages</code>. That default is deliberate: previewing a file shouldn't quietly tell a stranger's server that you opened it. Images stored beside the document are unaffected by the setting.</li>
+        <li>An image referenced by an absolute path — <code>C:\pics\x.png</code>, or a <code>file://</code> URL — isn't loaded. The preview only resolves paths written relative to the document, and leaves anything absolute alone.</li>
+        <li>An image outside the folder you have open doesn't load, and you get an empty box rather than an error. Open a workspace of <code>docs/</code> by itself, preview <code>docs/setup.md</code>, and <code>![logo](../images/logo.png)</code> stays blank — <code>images/</code> isn't in the folder you opened. Open the parent that holds both <code>docs/</code> and <code>images/</code>, and the picture loads. VS Code's built-in Markdown preview draws the line in the same place.</li>
+        <li><strong>Script in raw HTML never runs.</strong> <code>&lt;script&gt;</code>, <code>onclick=</code>, <code>&lt;iframe&gt;</code> and a posting <code>&lt;form&gt;</code> are all refused, whether they were written in the document or injected into it. That is deliberate — a preview is a reading surface, not a place a document gets to execute — and it matches VS Code's own Markdown preview. Markup still renders; only the executing parts don't.</li>
+        <li><strong>The first preview opened in a window can pause for a few seconds</strong> if the document contains a diagram. The host reads and hashes the 3.18 MB Mermaid bundle to derive the version in its URL, and on a cold file cache that read is slow. It is paid once per window, not once per render, and a document without a diagram never loads Mermaid at all. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/25">#25</a>)</li>
+        <li><strong>An image inside a heading isn't resolved.</strong> <code>## The ![logo](logo.png) release</code> shows a broken box, though the same image in a paragraph below renders fine. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/28">#28</a>)</li>
         <li>Merged-cell tables (<code>rowspan</code> / <code>colspan</code>) aren't supported yet — a syntax for them is still being designed. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/8">#8</a>)</li>
-        <li>The preview doesn't yet follow the editor cursor, or the editor the preview. Re-rendering after an edit does preserve your scroll position, so you aren't thrown back to the top.</li>
-        <li>After an extension update, the preview can keep running the previous version's bundle until the panel is reopened. Close and reopen the preview if it looks stale; the durable fix is content-hash busting. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/6">#6</a>)</li>
-        <li>The outline panel is a fixed width and can't be collapsed yet. (<a href="https://github.com/ROG-stdioh/graphite-md/issues/3">#3</a>)</li>
+        <li>The preview doesn't follow the editor cursor, or the editor the preview. Re-rendering after an edit does preserve your scroll position, so you aren't thrown back to the top.</li>
       </ul>
 
       <h2>Contributing</h2>
@@ -454,10 +472,12 @@
       <h2>Opening the preview</h2>
       <p>With a Markdown file open, run one of these from the Command Palette (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> / <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>):</p>
       <ul>
-        <li><strong>graphite.md: Open Preview</strong> — opens in the current editor group</li>
-        <li><strong>graphite.md: Open Preview to the Side</strong> — opens beside your editor (bound to <kbd>Ctrl</kbd>+<kbd>K</kbd> <kbd>V</kbd> / <kbd>Cmd</kbd>+<kbd>K</kbd> <kbd>V</kbd>)</li>
+        <li><strong>graphite.md: Open Preview</strong> — opens in the current editor group (<kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>P</kbd>)</li>
+        <li><strong>graphite.md: Open Preview to the Side</strong> — opens beside your editor (<kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>S</kbd>)</li>
+        <li><strong>graphite.md: Toggle Outline</strong> — folds the outline pane away and back (<kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>O</kbd>)</li>
       </ul>
       <p>The preview re-renders automatically as you edit — no manual refresh.</p>
+      <p>These are a chord of graphite.md's own because <kbd>Ctrl</kbd>+<kbd>K</kbd> <kbd>V</kbd> belongs to VS Code's built-in Markdown preview, so the same keystroke used to mean different things in different windows depending on which extension answered it.</p>
 
       <h2>Collapsing sections</h2>
       <p>Click any heading (or its chevron, hanging in the left margin) to collapse everything under it. Click again to reopen. This only affects what's shown in the reading pane — it doesn't touch your source file.</p>
@@ -470,6 +490,8 @@
         <li><strong>Diagrams</strong> — a flat list of every Mermaid diagram.</li>
       </ul>
       <p>Clicking any node soft-scrolls the reading pane to that spot, opens any collapsed parent sections needed to reveal it (siblings stay untouched), and briefly pulses the node so you can confirm where you landed.</p>
+      <p><strong>The pane folds away.</strong> The chevron in the preview's top-right corner hides it and brings it back, and <strong>graphite.md: Toggle Outline</strong> (<kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>O</kbd>) does the same from the keyboard. With the pane gone the reading column takes the whole width, so the measure grows and your text re-wraps to match; the fold is remembered per preview panel, which is why editing — and the re-render that follows — doesn't spring it open again. If an animated fold re-wrapping the text under you is worse than the width is worth, turn off <code>graphiteMd.animation</code>.</p>
+      <p>Front matter is read here too: a YAML block at the top of a document arrives as a table rather than as a stray heading above your first section, and one that won't parse is reported as an error block instead of half a table.</p>
 
       <figure class="outline-figure">
         <svg viewBox="0 0 240 224" role="img" aria-label="The outline drawn as a graph: a vertical trunk of top-level sections, with nested headings curving off it. The path to the current section is highlighted.">
@@ -525,6 +547,12 @@ graph TD
   B -->|No| D[Do that]
 ```</code></pre>
 
+      <h2>Images</h2>
+      <p>Write an image the usual way and it renders — resolved against the document it is written in, not against the folder you happen to have open:</p>
+      <pre><code>![Shard map](diagrams/shard-map.png)</code></pre>
+      <p>A file in a subfolder therefore finds the pictures beside it, and <code>../images/logo.png</code> works whenever the folder above the document is open. An image outside the open folder, or one named by an absolute path, is left alone and shows an empty box — the same line VS Code's built-in preview draws.</p>
+      <p>Images from the network are the one thing that stays off until you ask for it. With <code>graphiteMd.remoteImages</code> at its default, an <code>https://…</code> image doesn't load: a preview is a local reading surface, and loading one tells a server its author picked that you opened the file. Turning the setting on allows them, and the Output channel records every image the preview declined and why.</p>
+
       <h2>Callouts</h2>
       <p>A normal blockquote:</p>
       <pre><code>&gt; Percentages resolve against the parent's content box.</code></pre>
@@ -549,6 +577,14 @@ Here's a claim that needs a source.[^1]
 
 [^1]: And here's the source.</code></pre>
 
+      <h2>Raw HTML</h2>
+      <p>Markup you write arrives as markup — the same way VS Code's own preview treats it — so <code>&lt;mark&gt;</code>, <code>&lt;kbd&gt;</code>, <code>&lt;details&gt;</code>, <code>&lt;dl&gt;</code>, <code>&lt;figure&gt;</code> and a hand-written table all render:</p>
+      <pre><code>&lt;details&gt;
+  &lt;summary&gt;Measured on the 2026-09-30 run&lt;/summary&gt;
+  p99 dropped from 480 ms to 310 ms after the shard split.
+&lt;/details&gt;</code></pre>
+      <p>What does <em>not</em> run is script. <code>&lt;script&gt;</code>, an <code>onclick=</code> attribute, an <code>&lt;iframe&gt;</code> and a posting <code>&lt;form&gt;</code> are refused by the preview's Content-Security-Policy, so a document cannot execute in the pane or reach a server through it. The boundary is the policy rather than the renderer — which is how VS Code's own preview draws it too.</p>
+
       <h2>Code blocks</h2>
       <p>Fenced code is highlighted with highlight.js, using the language you name after the backticks:</p>
       <pre><code>```ts
@@ -556,18 +592,31 @@ const answer: number = 42;
 ```</code></pre>
       <p>An unknown or missing language falls back to plain monospace rather than failing.</p>
 
-      <h2>Reading width</h2>
-      <p>Set the reading column width once in <code>settings.json</code>:</p>
+      <h2>Settings</h2>
+      <p>Four settings, all under <code>graphiteMd</code>:</p>
+      <table>
+        <tr><th>Setting</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>contentWidth</code></td><td><code>60</code></td><td>The reading column's share of the available pane (40–100). Changing it widens an already-open preview immediately — there's no in-panel control.</td></tr>
+        <tr><td><code>remoteImages</code></td><td><code>false</code></td><td>Whether images from the network may load. See Images above.</td></tr>
+        <tr><td><code>typographer</code></td><td><code>true</code></td><td>Whether straight quotes become curly, <code>--</code> an en dash and <code>...</code> an ellipsis. Code is never touched. VS Code's own preview has the same option with it off, so a document can read slightly differently in the two.</td></tr>
+        <tr><td><code>animation</code></td><td><code>true</code></td><td>Whether the outline animates as it folds. Off makes it instant, which suits reading in a narrow window; the system's "reduce motion" setting always makes it instant.</td></tr>
+      </table>
+      <p>All four, with their defaults:</p>
       <pre><code>{
-  "graphiteMd.contentWidth": 60
+  "graphiteMd.contentWidth": 60,
+  "graphiteMd.remoteImages": false,
+  "graphiteMd.typographer": true,
+  "graphiteMd.animation": true
 }</code></pre>
-      <p>A percentage of the available pane (40–100). Changing the setting updates an already-open preview immediately — there's no in-panel control.</p>
 
       <h2>Keyboard shortcuts</h2>
       <table>
-        <tr><th>Action</th><th>Windows / Linux</th><th>macOS</th></tr>
-        <tr><td>Open preview to the side</td><td><kbd>Ctrl</kbd>+<kbd>K</kbd> <kbd>V</kbd></td><td><kbd>Cmd</kbd>+<kbd>K</kbd> <kbd>V</kbd></td></tr>
+        <tr><th>Action</th><th>Key</th></tr>
+        <tr><td>Open the preview in this group</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>P</kbd></td></tr>
+        <tr><td>Open the preview to the side</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>S</kbd></td></tr>
+        <tr><td>Fold the outline away and back</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd> <kbd>O</kbd></td></tr>
       </table>
+      <p>These work on every platform — <kbd>Ctrl</kbd>, not <kbd>Cmd</kbd>, on macOS — because they are graphite.md's own chord rather than a VS Code default. Every binding is rebindable in Keyboard Shortcuts, where the commands are listed under <code>graphiteMd.*</code>.</p>
     </div>
 
     <!-- ============================ GALLERY TAB ============================ -->
