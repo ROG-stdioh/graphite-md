@@ -721,6 +721,10 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   const slugs = new Map<string, number>();
 
   let docTitleHtml = '';
+  // The same heading as plain text. The outline's Tables and Diagrams views
+  // label an entry by the section it sits in, and the intro is not a section —
+  // its entries are labelled with the document's title instead.
+  let docTitleText = '';
   const introTokens: Token[] = [];
   const footerTokens: Token[] = [];
   const roots: Section[] = [];
@@ -763,6 +767,7 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
       if (level === 1 && !sawH1) {
         sawH1 = true;
         docTitleHtml = titleHtml;
+        docTitleText = titleText;
         continue;
       }
 
@@ -875,7 +880,26 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     return { html, toc };
   }
 
-  const introHtml = renderTokens(introTokens);
+  // The intro — everything above the first heading a section is built from —
+  // goes through the same two scans a section body does, and for the same
+  // reason. A fence names its own diagram wherever it sits, so an intro
+  // diagram had an id that nothing collected: it was listed in no view and,
+  // because the mermaid script is loaded only when there is a diagram to draw,
+  // the reader got the fence's source instead of the drawing. An intro table
+  // fared worse — `table_open` deliberately emits no id, so it had no name to
+  // be listed under at all.
+  //
+  // The placement is the part that has to be right, not just the presence:
+  // both views are in document order, and the ids come off counters allocated
+  // in the order the scans run. Scanned after the sections, an intro table
+  // would be listed below every table under a heading. Rendering the intro
+  // first already gives its fences the first diagram numbers; scanning it
+  // first gives it the first table numbers too, so the two agree.
+  const introLabel = docTitleText || 'Introduction';
+  let introHtml = renderTokens(introTokens);
+  introHtml = collectTables(introHtml, introLabel);
+  introHtml = collectDiagrams(introHtml, introLabel);
+
   const rendered = roots.map(renderSection);
   const sectionsHtml = rendered.map((r) => r.html).join('\n');
   const footnotesHtml = footerTokens.length ? renderTokens(footerTokens) : '';
