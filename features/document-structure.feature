@@ -154,6 +154,103 @@ Feature: Reading a document
       | beta   |
       | gamma  |
 
+  # Letters outside ASCII are part of a heading's name, and the anchor is the
+  # name. Stripping them is silent in both directions: a link written for
+  # GitHub (`#café`) resolves to nothing here, and a headline in a script the
+  # rule cannot spell collapses to the fallback — `#section`, `#section-1` — so
+  # a reader of a Japanese document has no linkable name for anything.
+
+  Scenario: Letters outside ASCII are kept in the anchor
+    Given a markdown document:
+      """
+      # Title
+
+      ## Café
+
+      ## Über
+
+      ## 日本語
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | café   |
+      | über   |
+      | 日本語 |
+
+  # Half a letter is not a letter. Devanagari and the other Indic scripts write
+  # their vowels as combining marks that follow the consonant they belong to, so
+  # a rule that keeps letters and drops marks does not shorten this word, it
+  # misspells it.
+  Scenario: Combining marks are part of the letter they belong to
+    Given a markdown document:
+      """
+      # Title
+
+      ## हिन्दी
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor |
+      | हिन्दी  |
+
+  Scenario: A repeated heading keeps its own name when the name is not ASCII
+    Given a markdown document:
+      """
+      # Title
+
+      ## 日本語
+
+      ## 日本語
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor   |
+      | 日本語   |
+      | 日本語-1 |
+
+  # The other half of that rule, and the reason it is written as "what survives"
+  # rather than "what goes": punctuation is still dropped, and GitHub's slug does
+  # the same with it.
+  Scenario: Punctuation and the underscore
+    Given a markdown document:
+      """
+      # Title
+
+      ## C++
+
+      ## What's new?
+
+      ## A, B, and C
+
+      ## foo_bar
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor    |
+      | c         |
+      | whats-new |
+      | a-b-and-c |
+      | foo_bar   |
+
+  # Not every heading has a name. `## !!!` has none in any rule, and the
+  # fallback is ours — GitHub has no equivalent — so it is pinned here with the
+  # duplicate rule that has to keep working underneath it.
+  Scenario: A heading with nothing to keep still gets an anchor of its own
+    Given a markdown document:
+      """
+      # Title
+
+      ## !!!
+
+      ## ???
+      """
+    When the preview renders it
+    Then the headings are anchored at:
+      | anchor    |
+      | section   |
+      | section-1 |
+
   # The ids a render hands out come from two directions. A section body is its
   # heading's slug behind a `body-` prefix and an anchor is the bare slug, while
   # `table-1` and `diagram-1` come off a counter — so `## Body Text` is in line
@@ -210,3 +307,83 @@ Feature: Reading a document
     When the preview renders it
     Then no two elements share an id
     Then the outline lists 2 diagrams
+
+  # ---- front matter --------------------------------------------------------
+  # `---` at the top of the file is front matter to every tool that reads these
+  # documents — Jekyll, Hugo, VS Code's own Markdown preview, GitHub's
+  # rendering of a README. graphite.md rendered it as a rule, the YAML as a
+  # heading, and another rule.
+  #
+  # What it must never do is hide the document with it. A block that runs from
+  # the first line to the end of the file because nothing closed it looks
+  # exactly like a block that worked, and it is why the absent assertions below
+  # are never alone: each one sits beside what did render.
+
+  Scenario: Front matter is not rendered
+    Given a markdown document:
+      """
+      ---
+      title: Shard Rebalancing
+      tags: [storage, replication]
+      ---
+
+      # Title
+
+      Body text.
+      """
+    When the preview renders it
+    Then the document title is "Title"
+    Then the preview shows the text "Body text."
+    Then the preview does not show "title: Shard Rebalancing"
+    Then the preview does not show "tags: [storage, replication]"
+
+  Scenario: Front matter does not take the document with it
+    Given a markdown document:
+      """
+      ---
+      title: Shard Rebalancing
+      ---
+      # Title
+
+      ## Summary
+
+      Body text.
+      """
+    When the preview renders it
+    Then the document title is "Title"
+    Then the outline reads:
+      | section | depth |
+      | Summary | 0     |
+
+  # Only the very top of the file. A blockquote's content is tokenized against
+  # the same state as the rest of the document with the `>` markers already
+  # stripped, so a rule on the first line of a quote reaches this rule looking
+  # exactly like a fence at line 0 — and a quote that opens and closes with one
+  # would have its middle quietly eaten.
+  Scenario: A rule inside a blockquote is not front matter
+    Given a markdown document:
+      """
+      > ---
+      > A quoted line.
+      > ---
+      >
+      > Quoted text.
+
+      Body text.
+      """
+    When the preview renders it
+    Then the preview shows the text "A quoted line."
+    Then the preview shows the text "Quoted text."
+    Then the preview shows the text "Body text."
+
+  # The other direction: a rule that never closes is a rule. Reading to the end
+  # of the file for a delimiter that is not there would silently delete the
+  # document, and this is the scenario that says so.
+  Scenario: A rule that is never closed is still a rule
+    Given a markdown document:
+      """
+      ---
+      Just a document that opens with a rule.
+      """
+    When the preview renders it
+    Then the preview shows the text "Just a document that opens with a rule."

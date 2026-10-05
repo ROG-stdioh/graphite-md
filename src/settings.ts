@@ -71,3 +71,25 @@ export const REMOTE_IMAGES_DEFAULT = false;
 export function resolveRemoteImages(raw: unknown, fallback: boolean): boolean {
   return typeof raw === 'boolean' ? raw : fallback;
 }
+
+/** Mirrors the `graphiteMd.typographer` contribution in package.json. */
+export const TYPOGRAPHER_DEFAULT = true;
+
+/**
+ * Decides whether the renderer applies markdown-it's typographic
+ * substitutions: straight quotes to curly, `--` to an en dash, `...` to an
+ * ellipsis.
+ *
+ * The same coercion rule as above, and the same reason for it — a hand-edited
+ * `"typographer": "no"` arrives as a string wearing a boolean's type, and
+ * `Boolean('no')` is `true`, so anything that is not a boolean falls back
+ * rather than being read backwards.
+ *
+ * The default is *on*, which is where this diverges from VS Code's preview: its
+ * `markdown.preview.typographer` ships off. A reader who wants the two previews
+ * to agree turns this off; the substitution is a characteristic of this one
+ * rather than a mistake in it, so it stays on until asked otherwise.
+ */
+export function resolveTypographer(raw: unknown, fallback: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : fallback;
+}

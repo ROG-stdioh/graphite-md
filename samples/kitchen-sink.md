@@ -1,3 +1,8 @@
+---
+title: graphite.md — Kitchen Sink
+tags: [sample, conformance]
+---
+
 # graphite.md — Kitchen Sink
 
 Everything the preview can render, in one file. Open this in the Extension
