@@ -89,15 +89,18 @@
     },
     "keybindings": [
       {
+        "command": "graphiteMd.open",
+        "key": "ctrl+g p",
+        "when": "editorLangId == markdown"
+      },
+      {
         "command": "graphiteMd.openToSide",
-        "key": "ctrl+k v",
-        "mac": "cmd+k v",
+        "key": "ctrl+g s",
         "when": "editorLangId == markdown"
       },
       {
         "command": "graphiteMd.toggleOutline",
-        "key": "ctrl+k o",
-        "mac": "cmd+k o",
+        "key": "ctrl+g o",
         "when": "activeWebviewPanelId == 'graphiteMd' || editorLangId == markdown"
       }
     ],
