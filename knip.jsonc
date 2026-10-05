@@ -1,13 +1,21 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
 
-  // No `entry` list. Knip's esbuild plugin reads entryPoints straight out of
+  // The two entry points of the integration suite, and the only two a build
+  // cannot name. Knip's esbuild plugin reads entryPoints straight out of
   // esbuild.ts — its file list is esbuild.{js,mjs,cjs,ts,mts,cts}, so the .ts
-  // build script is found the same way the .js one was. That finds both the
-  // extension host (src/extension.ts) and the webview (src/webview/main.ts) —
-  // and, unlike a list written here, cannot drift from the build when an entry
-  // moves. An earlier version of this file named media/preview.js instead,
-  // which is now generated output and gitignored, so knip never sees it.
+  // build script is found the same way the .js one was — which finds both the
+  // extension host (src/extension.ts) and the webview (src/webview/main.ts) and
+  // cannot drift from the build when an entry moves. An earlier version of this
+  // file named media/preview.js instead, which is now generated output and
+  // gitignored, so knip never sees it.
+  //
+  // The suite is reached by neither route: @vscode/test-cli finds its config by
+  // a fixed filename, and the runner loads the compiled tests from the glob
+  // inside that config — so both read as dead files until they are named here.
+  // The test glob is the *source* files rather than the compiled ones, since
+  // out/ is gitignored and knip never looks there.
+  "entry": ["test/**/*.test.ts", ".vscode-test.mjs"],
 
   "cucumber": {
     // knip's cucumber plugin reads the suite's globs out of the config file's
@@ -34,5 +42,12 @@
   // Reached only as a string, never as an import: copy-assets.ts copies it out
   // of node_modules by path, and extension.ts names the copied bundle in a
   // <script src>. Taking knip's advice would ship a preview with no diagrams.
-  "ignoreDependencies": ["mermaid"]
+  //
+  // @vscode/test-electron for a different reason and the same shape: the
+  // `vscode-test` CLI resolves it out of the project at run time — it is how
+  // the runner downloads and launches the editor — so nothing imports it and
+  // removing it makes every integration run fail with "Can't resolve
+  // '@vscode/test-electron' in <repo>". Verified by doing exactly that.
+  // @vscode/test-cli itself is found through the npm script that runs its bin.
+  "ignoreDependencies": ["mermaid", "@vscode/test-electron"]
 }

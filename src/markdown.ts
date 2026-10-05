@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import type { Token } from 'markdown-it';
+import type { StateBlock, Token } from 'markdown-it';
 // The six plugins below ship no types of their own. Their shapes are declared
 // in src/types/markdown-it-plugins.d.ts, read from the installed packages —
 // which is why there is no suppression directive on any of these lines.
@@ -12,6 +12,12 @@ import markdownItMark from 'markdown-it-mark';
 import markdownItFootnote from 'markdown-it-footnote';
 import katex from 'katex';
 import hljs from 'highlight.js';
+// Front matter is YAML, and read with a parser rather than line by line: the
+// values that break a split on the first colon — `title: "a: b"`, a quoted
+// string, a block scalar, an indented map — are ordinary front matter, and a
+// preview that mangles a title looks broken in a way that showing nothing did
+// not. This is the parser VS Code's own preview uses.
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 // TocNode lives in the shared contract, not here: it is the shape of the
 // outline data that crosses to the webview, so the host and the webview have to
 // name the same type or the guard in protocol.ts is checking something else.
@@ -21,6 +27,10 @@ import type { TocNode } from './shared/protocol';
 // with no editor around it. `activate()` calls setLogger to point it at the
 // Output Channel. See src/logger.ts.
 import { log } from './logger';
+// The typographer's default, next to the contribution it mirrors. settings.ts
+// is free of any `vscode` import — that is the point of it — so the renderer can
+// read it without an editor around.
+import { TYPOGRAPHER_DEFAULT } from './settings';
 
 export interface RenderResult {
   html: string;
@@ -47,6 +57,18 @@ export interface RenderEnv {
    * blocked image stays blocked here and is never silently rewritten.
    */
   resolveImage?: (src: string) => string | undefined;
+
+  /**
+   * markdown-it's typographer for this render: straight quotes become curly,
+   * `--` becomes an en dash, `...` an ellipsis.
+   *
+   * A setting rather than a host-lent capability like `resolveImage` above, but
+   * it travels the same way for the same reason — this file is rendered with no
+   * editor around it, so whatever `vscode` holds has to arrive as an argument.
+   * Omitted means the default in ./settings, which is also what the
+   * contribution in package.json declares.
+   */
+  typographer?: boolean;
 }
 
 // One markdown-it instance is enough; it holds no per-render state itself —
@@ -68,7 +90,9 @@ const md: MarkdownIt = new MarkdownIt({
   // and where the scenarios that hold it live too.
   html: true,
   linkify: true,
-  typographer: true,
+  // `typographer` is deliberately absent here: it is a setting, so it is set on
+  // this instance per render in renderMarkdown(), which is the one place that
+  // knows what the setting says. See RenderEnv.typographer.
   // Syntax highlighting for fenced code blocks. Returning '' tells
   // markdown-it to fall back to its own plain escaping, so an unknown
   // language (or any highlight.js hiccup) degrades to the old monochrome
@@ -100,6 +124,32 @@ const md: MarkdownIt = new MarkdownIt({
 // matched by separate, non-fuzzy rules and still linkify.
 md.linkify.set({ fuzzyLink: false });
 
+// texmath's inline `$$…$$` template wraps the formula in a `<section>`, which
+// is block markup — so a formula written *inside* a sentence arrived as a
+// `<section>` inside the sentence's `<p>`. A `<p>` cannot contain a
+// `<section>`, so the browser's error recovery closed the paragraph at the
+// formula and left the words after it outside any paragraph: the page read
+// correctly and the markup did not say what the sentence was (#41).
+//
+// The wrapper is dropped and the `<eqn>` it also carried stays — an element a
+// paragraph may hold, keeping the formula on its own centred line via KaTeX's
+// own `.katex-display{display:block}`. Nothing in the project styles `section`
+// or `eqn`, so the wrapper was load-bearing for nothing. Only the inline
+// template changes: a `$$…$$` line on its own is a block token, whose
+// `<section>` sits beside the paragraphs rather than inside one.
+//
+// Edited in place rather than re-registered, unlike the rules below: a template
+// has no factory, and `texmath.rules` is the library's extension surface — this
+// is the object the registration below reads, so there is nothing to keep in
+// step.
+try {
+  const dollarDouble = texmath.rules.dollars?.inline.find((rule) => rule.name === 'math_inline_double');
+  if (!dollarDouble) throw new Error('texmath carries no `math_inline_double` rule for dollars');
+  dollarDouble.tmpl = '<eqn>$1</eqn>';
+} catch (err) {
+  log.error('failed to unwrap the inline `$$…$$` template; a mid-sentence formula may split its paragraph', err);
+}
+
 // Registering a plugin runs at module load time — if it throws, the whole
 // extension fails to even load (this file is require()'d from extension.ts
 // before activate() runs), which is a much worse failure mode than "the
@@ -119,6 +169,81 @@ try {
   );
 } catch (err) {
   log.error('failed to register markdown-it-texmath, math rendering will be disabled', err);
+}
+
+// texmath's `$…$` rule lets the closing delimiter be any later `$` that its own
+// guard accepts, and its guard only looks at the characters *outside* the pair.
+// So in `It costs $5, and $x^2$ is the area.` the price's `$` opens a span, the
+// formula's opening `$` closes it, and `5, and $x^2` is handed to KaTeX as TeX —
+// a red error box where the sentence was, and no maths at all (#38).
+//
+// The narrower rule is the one VS Code's preview uses (extensions/markdown-math
+// with @vscode/markdown-it-katex): the closing delimiter has to be the *next*
+// `$`, and a `$` whose next `$` cannot legally close it is not an opener — the
+// scan resumes at that next `$` instead of running past it. `$5` therefore stays
+// prose and `$x^2$` still typesets.
+//
+// Expressed as a regexp by forbidding a bare `$` inside the content, which is
+// what "the closer is the next `$`" means for a single match. `\$` stays
+// allowed, because an escaped dollar is not a delimiter: KaTeX reads it as a
+// literal `$`, and VS Code skips it when hunting for the closer too. The rest of
+// the rule — the guards, the template, the tag — is texmath's, taken from the
+// same object the plugin registered rather than restated, so nothing but the
+// one regexp can drift.
+try {
+  const dollarInline = texmath.rules.dollars?.inline.find((rule) => rule.name === 'math_inline');
+  // `ruler.at` throws when the rule is absent, and it is absent whenever the
+  // registration above failed — so this cannot assume the plugin loaded. Hence
+  // the same try/catch the registrations get: the failure mode is "prices before
+  // a formula swallow it again", which is bad but is not a dead extension.
+  if (!dollarInline) throw new Error('texmath carries no `math_inline` rule for dollars');
+  md.inline.ruler.at(
+    'math_inline',
+    texmath.inline({
+      ...dollarInline,
+      // Same shape as texmath's own `\$((?:[^\s\\])|(?:\S.*?[^\s\\]))\$`, with
+      // `.` — which crosses a `$` — replaced by a pair of alternatives that
+      // between them cannot: an escape sequence, or a character that is neither
+      // `$` nor a backslash. Its own `$$…$$` rule already excludes `$` this way.
+      rex: /\$((?:[^\s\\])|(?:\S(?:\\[\s\S]|[^$\\])*?[^\s\\]))\$/gy,
+    })
+  );
+} catch (err) {
+  log.error('failed to narrow the `$…$` rule; a price may swallow the next formula', err);
+}
+
+// texmath's two `$$…$$` *block* rules match at the start of a line and then
+// consume the whole rest of it — the rule moves the parser's line cursor past
+// the line's end (`state.line = curline + 1`) — so in `$$x^2$$ is the area.`
+// everything after the closing `$$` was dropped. Not escaped, not shown as
+// text: never handed to any rule at all (#40).
+//
+// The narrowing is what VS Code's preview does. Its block rule declines unless
+// the closing `$$` ends the line, and the line then goes to the inline `$$…$$`
+// rule, which keeps the text. That is the split these two now follow: the block
+// rule owns a line that is only maths, the inline rule owns everything else.
+//
+// Appending to the shipped pattern rather than restating it, so the one thing
+// that differs is the requirement and the rest of the expression cannot drift.
+// Same shape as the `$…$` narrowing above: the rule is replaced through
+// texmath's own factory, with everything but the regexp taken from the rule
+// texmath registered.
+try {
+  const dollarsBlock = texmath.rules.dollars?.block;
+  if (!dollarsBlock || dollarsBlock.length === 0) {
+    throw new Error('texmath carries no `$$…$$` block rules for dollars');
+  }
+  for (const rule of dollarsBlock) {
+    md.block.ruler.at(
+      rule.name,
+      texmath.block({
+        ...rule,
+        rex: new RegExp(rule.rex.source + '[ \\t]*$', rule.rex.flags),
+      })
+    );
+  }
+} catch (err) {
+  log.error('failed to require the `$$…$$` closer to end its line; a formula may swallow the text after it', err);
 }
 try {
   md.use(markdownItSup); // ^2^
@@ -145,6 +270,151 @@ try {
 } catch (err) {
   log.error('failed to register markdown-it-footnote, footnotes will be disabled', err);
 }
+
+// ---- front matter: read and shown as a table --------------------------------
+// `---`, the YAML, `---`, at the very top of the file: front matter to every
+// tool that reads these documents — Jekyll, Hugo, GitHub's README rendering,
+// VS Code's own Markdown preview — and this renderer did not know it existed.
+// The opening fence became an `<hr>`, the YAML became a paragraph or a heading,
+// and because a line of text followed by `---` is a *setext heading*, the first
+// key usually arrived as a section: a document's metadata appeared in its
+// outline.
+//
+// A block rule, where every other rewrite in this file is a renderer override.
+// A renderer rule can only change how a token is written, so "write nothing" is
+// a promise each of them keeps separately and any one of them can break; a
+// block rule consumes the lines before a token exists, which takes the block
+// out of the parse rather than out of the output. It is also what keeps every
+// line below it pointing where it did — the `data-line` a task checkbox carries
+// is a position in this source, and the lines are counted rather than removed.
+//
+// The block is drawn rather than dropped, as the table VS Code's preview draws
+// for it. That reverses a decision made one release earlier, and the reason is
+// the documents: front matter stopped being a static-site-generator habit, and
+// a skill, a memory or a note now opens with `name:` and `description:` — the
+// part that says what the document is for is exactly the part that was being
+// thrown away.
+//
+// `---` only. markdown-it ships no front-matter rule. `+++` and `{` are not
+// accepted here because the preview this extension is measured against does not
+// accept them either.
+const FRONT_MATTER_FENCE = /^---[ \t]*$/;
+
+/** One line of the source, newline excluded. */
+function lineAt(state: StateBlock, line: number): string {
+  const start = state.bMarks[line] ?? 0;
+  return state.src.slice(start, state.eMarks[line] ?? start);
+}
+
+function frontMatter(state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean {
+  // The first line of the document, at the left margin. A `---` anywhere else is
+  // a thematic break, including one inside a blockquote or a list item — those
+  // are tokenized against this same state with absolute line numbers, so a fence
+  // written in one of them is never at line 0.
+  //
+  // The left margin is Jekyll's and GitHub's rule, both of which anchor the
+  // fence to the start of the file. An indented `---` is therefore left alone,
+  // which is the direction to err in: the cost is a rule rendered as a rule, and
+  // the cost of the other mistake is a document's opening hidden from the reader.
+  // `parentType` is the load-bearing half. A blockquote strips its own `>`
+  // markers by rewriting this very state's line offsets, then tokenizes its
+  // content from line 0 of the same state — so a quote whose first line is `---`
+  // arrives here as a fence at line 0 of the document. The type is what is left
+  // of the distinction: it is 'root' for a document and 'blockquote'/'list' for
+  // everything tokenized inside one.
+  if (startLine !== 0 || state.parentType !== 'root' || state.tShift[startLine] !== 0) return false;
+  if (!FRONT_MATTER_FENCE.test(lineAt(state, startLine))) return false;
+
+  for (let line = startLine + 1; line < endLine; line++) {
+    if (!FRONT_MATTER_FENCE.test(lineAt(state, line))) continue;
+    if (silent) return true;
+    // Consumed through the closing fence, and the YAML carried on the token —
+    // parsed in the renderer rather than here, where a rule may be asked whether
+    // it matches without anything being rendered.
+    const token = state.push('front_matter', '', 0);
+    token.map = [startLine, line + 1];
+    token.markup = '---';
+    const from = state.bMarks[startLine + 1] ?? 0;
+    token.content = state.src.slice(from, state.bMarks[line] ?? from).replace(/\n$/, '');
+    state.line = line + 1;
+    return true;
+  }
+  // A fence that never closes is not front matter. Reading on to the end of the
+  // file for a delimiter that is not there would delete the document, and a
+  // document that opens with a thematic break is an ordinary document.
+  return false;
+}
+
+md.block.ruler.before('hr', 'front_matter', frontMatter);
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * One front matter value, as the inside of a cell.
+ *
+ * A copy of VS Code's mapping, because the table is drawn for parity and the
+ * parity is only worth having if it holds for the documents people write: a list
+ * of tags is a list rather than `sample, conformance`, a nested map is shown as
+ * the YAML it is, and everything else is its own text.
+ *
+ * Escaped rather than rendered as Markdown, which is VS Code's rule and the
+ * reason a `title:` is safe to show: front matter is the part of a document that
+ * arrives from a tool rather than from the author, so `title: <img onerror=...>`
+ * is text here and stays text.
+ */
+function frontMatterValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    return `<ul>${value.map((item) => `<li>${frontMatterValue(item)}</li>`).join('')}</ul>`;
+  }
+  if (value instanceof Date) return escapeHtml(value.toISOString());
+  if (typeof value === 'object') return `<code>${escapeHtml(stringifyYaml(value).trimEnd())}</code>`;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return escapeHtml(String(value));
+  if (typeof value === 'string') return escapeHtml(value);
+  // A scalar YAML cannot produce — a symbol, a function. Written out rather than
+  // left to `String`, which would print a function's source into the page.
+  return '';
+}
+
+/**
+ * The front matter table: one row per top-level entry, the key in a `<th>` and
+ * the value in a `<td>`, in a single tbody — no header row, because the keys are
+ * row headers and a header row would have to invent names for them.
+ *
+ * A parse error is shown rather than thrown. It is the one thing here that can
+ * fail on input, and a document whose front matter is malformed is still a
+ * document: taking the preview down would hide the writing along with the
+ * metadata, which is the failure this rule was written to stop making.
+ */
+function frontMatterTable(source: string): string {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(source);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return (
+      `<div class="frontmatter-error" role="alert">` +
+      `<strong>Failed to parse front matter</strong><pre>${escapeHtml(message)}</pre></div>`
+    );
+  }
+  if (parsed === null || parsed === undefined) return '';
+  // A document can be a list, and YAML says front matter does not have to be a
+  // map. There is no key to name, so the value gets the row to itself.
+  const entries =
+    typeof parsed === 'object' && !Array.isArray(parsed)
+      ? Object.entries(parsed as Record<string, unknown>)
+      : ([['', parsed]] as Array<[string, unknown]>);
+  if (entries.length === 0) return '';
+  const rows = entries
+    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${frontMatterValue(value)}</td></tr>`)
+    .join('');
+  return `<table class="frontmatter"><tbody>${rows}</tbody></table>`;
+}
+
+md.renderer.rules.front_matter = (tokens, idx) => frontMatterTable(at(tokens, idx, 'a front matter token').content);
 
 // ---- blockquote -> .callout -------------------------------------------------
 md.renderer.rules.blockquote_open = () => `<blockquote class="callout">`;
@@ -200,6 +470,14 @@ md.renderer.rules.table_open = () => `<table class="md-table">`;
 // attribute runs into the one before it.
 const TABLE_TAG = /<table(?=[\s/>])[^>]*>/gi;
 const TABLE_ID = /(\s)id\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+// The one table in the pane that the document did not write. It is the metadata
+// above the first heading, not a table of the document's data, and an outline
+// entry pointing at it — "Introduction — table 1", scrolling to a block of keys
+// nobody was reading as a table — would be the Tables view describing its own
+// plumbing. Recognised by the class the renderer gives it, which is also what
+// preview.css keys off to keep it out of the content tables' styling.
+const FRONT_MATTER_TABLE = /<table(?=[\s/>])[^>]*\bclass\s*=\s*(["'])[^"']*\bfrontmatter\b/i;
 
 let tableCounter = 0;
 
@@ -428,10 +706,35 @@ function applyTaskLists(tokens: Token[]): void {
   }
 }
 
+/**
+ * A heading's anchor: its text, lower-cased, as a URL fragment.
+ *
+ * The rule is GitHub's, because that is the anchor every author writes and the
+ * one a link copied out of GitHub's own rendering carries. Letters, numbers and
+ * combining marks of any script survive; punctuation and the whitespace that
+ * separates words do not; `-` and `_` are kept, since they are part of a name
+ * that reads as one — `#foo_bar` is what GitHub produces for `## foo_bar`, and
+ * dropping the underscore silently renames the heading.
+ *
+ * The previous rule kept `[a-z0-9]` alone, which is the same thing only for
+ * ASCII. It deleted `é` from `Café` and every character of `日本語`, so a
+ * heading in a non-Latin script landed on the `section` fallback below and a
+ * link written as `#café` resolved to nothing.
+ *
+ * `\p{M}` is not decoration: Devanagari and the other Indic scripts write
+ * vowels as combining marks, so a class without them mangles the word rather
+ * than merely shortening it.
+ *
+ * The fallback and the duplicate counter are ours — GitHub has neither, and
+ * both are needed here. A heading that is all punctuation exists, and an empty
+ * id is a heading nothing can link to; two headings with the same text are two
+ * elements, and an id shared between them is the silent misdirection
+ * `claimId` prevents.
+ */
 function slugify(text: string, seen: Map<string, number>): string {
   let base = text
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '')
     .trim()
     .replace(/\s+/g, '-');
   if (!base) base = 'section';
@@ -502,11 +805,22 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   // hypothetical: it is what the pre-pass did wrong before it was fixed to keep
   // the newlines, and it is what `every checkbox can be toggled in the source
   // file` in features/safety.feature exists to catch.
+  // One markdown-it instance serves every document in the window, and this is
+  // a setting, so the option is written per render rather than at construction.
+  // It has to be *before* the parse: markdown-it's typographic substitutions
+  // are core rules that read `md.options.typographer` while parsing, so a value
+  // set afterwards would change nothing. VS Code's preview re-sets its
+  // instance's options per render for the same reason.
+  md.set({ typographer: env.typographer ?? TYPOGRAPHER_DEFAULT });
   const tokens = md.parse(rawSource, env);
   applyTaskLists(tokens);
   const slugs = new Map<string, number>();
 
   let docTitleHtml = '';
+  // The same heading as plain text. The outline's Tables and Diagrams views
+  // label an entry by the section it sits in, and the intro is not a section —
+  // its entries are labelled with the document's title instead.
+  let docTitleText = '';
   const introTokens: Token[] = [];
   const footerTokens: Token[] = [];
   const roots: Section[] = [];
@@ -549,6 +863,7 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
       if (level === 1 && !sawH1) {
         sawH1 = true;
         docTitleHtml = titleHtml;
+        docTitleText = titleText;
         continue;
       }
 
@@ -611,6 +926,7 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   function collectTables(html: string, sectionLabel: string): string {
     const targets: string[] = [];
     const scanned = html.replace(TABLE_TAG, (tag) => {
+      if (FRONT_MATTER_TABLE.test(tag)) return tag;
       const authored = authoredTableId(tag);
       const id = authored === undefined ? claimTableId() : claimId(authored);
       targets.push(id);
@@ -661,7 +977,26 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     return { html, toc };
   }
 
-  const introHtml = renderTokens(introTokens);
+  // The intro — everything above the first heading a section is built from —
+  // goes through the same two scans a section body does, and for the same
+  // reason. A fence names its own diagram wherever it sits, so an intro
+  // diagram had an id that nothing collected: it was listed in no view and,
+  // because the mermaid script is loaded only when there is a diagram to draw,
+  // the reader got the fence's source instead of the drawing. An intro table
+  // fared worse — `table_open` deliberately emits no id, so it had no name to
+  // be listed under at all.
+  //
+  // The placement is the part that has to be right, not just the presence:
+  // both views are in document order, and the ids come off counters allocated
+  // in the order the scans run. Scanned after the sections, an intro table
+  // would be listed below every table under a heading. Rendering the intro
+  // first already gives its fences the first diagram numbers; scanning it
+  // first gives it the first table numbers too, so the two agree.
+  const introLabel = docTitleText || 'Introduction';
+  let introHtml = renderTokens(introTokens);
+  introHtml = collectTables(introHtml, introLabel);
+  introHtml = collectDiagrams(introHtml, introLabel);
+
   const rendered = roots.map(renderSection);
   const sectionsHtml = rendered.map((r) => r.html).join('\n');
   const footnotesHtml = footerTokens.length ? renderTokens(footerTokens) : '';
@@ -672,11 +1007,26 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     : '';
 
   // first paragraph right after the H1 reads as a subtitle, matching the
-  // "title + one-liner" convention most docs use
-  const introWithSubtitle = introHtml.replace(
-    /^<p>/,
-    '<p class="doc-sub">'
-  );
+  // "title + one-liner" convention most docs use.
+  //
+  // The condition is the whole rule, not a detail: without it this fires on
+  // whichever paragraph comes first in any document, so a note that opens with
+  // prose — no heading anywhere — has its first line rendered muted and smaller
+  // than the rest of it (#39). `docTitleHtml` is set from the first level-1
+  // heading and from nothing else, so it is exactly "the H1 exists".
+  //
+  // The `<p>` this looks for is no longer the first character of the intro when
+  // the document opens with front matter, because the renderer draws that table
+  // above everything else — a `<p>` anchored at the start would find a `<table>`
+  // and the summary would quietly stop being one. So the table is stepped over,
+  // and only there: without front matter the optional group matches nothing and
+  // this is the expression it always was.
+  const introWithSubtitle = docTitleHtml
+    ? introHtml.replace(
+        /^(<table class="frontmatter">[\s\S]*?<\/table>\s*)?<p>/,
+        '$1<p class="doc-sub">'
+      )
+    : introHtml;
 
   return {
     html: `${titleBlock}\n${introWithSubtitle}\n${sectionsHtml}\n${footnotesHtml}`,

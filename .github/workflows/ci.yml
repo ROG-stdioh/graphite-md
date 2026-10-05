@@ -55,3 +55,37 @@ jobs:
       - run: npm run check:package
 
       - run: npm run test:bdd
+
+  # The layer `verify` cannot reach at all: the extension running inside a real
+  # editor. A separate job rather than a step in that one, because it downloads
+  # and launches VS Code — a minute before the first assertion — while everything
+  # above is seconds. The two also fail for different reasons and want different
+  # reactions: above, the renderer is wrong; here, the extension does not load.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # The editor download is the slow half of this job and it is identical
+      # from run to run. The path is the workspace-relative one the runner uses
+      # — not `~/.vscode-test`, which is where a *global* install would land and
+      # would leave this caching nothing. Keyed on the config file rather than
+      # on a version written here, so bumping the pinned build in
+      # .vscode-test.mjs fetches the new one instead of replaying the old.
+      - uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('.vscode-test.mjs') }}
+
+      # xvfb because a GitHub runner has no display and VS Code will not start
+      # without one. `test:integration` builds first: the extension under test is
+      # out/extension.js, and the suite loads it through the host the way an
+      # installed copy would.
+      - run: xvfb-run -a npm run test:integration

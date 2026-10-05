@@ -58,6 +58,20 @@ Feature: Images
     When the preview renders it
     Then the image is described as "a sibling file"
 
+  # The `title` is the third thing on the tag and the one nothing asserted. It
+  # arrives from the same `![]()` as the `src`, and a rewrite that rebuilt the
+  # tag around the resolver's answer would keep the source and the alt exactly
+  # right and lose this one.
+  Scenario: The title survives the rewrite
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      ![a sibling file](diagram.png "the tooltip")
+      """
+    When the preview renders it
+    Then the image is described as "a sibling file"
+    And the image is captioned "the tooltip"
+
   # ---- raw HTML ------------------------------------------------------------
   # `<img>` written as HTML takes a different path through the renderer than
   # `![]()` does — it is never an image token, it arrives as raw markup — and it
@@ -108,6 +122,26 @@ Feature: Images
       """
     When the preview renders it
     Then the image is loaded from "resolved:single.png"
+
+  # Which of the two token types a tag becomes is CommonMark's decision, not
+  # this renderer's, and it turns on whether the tag's name is one of the
+  # block-level names it lists. `<img>` and `<source>` are on that list and
+  # `<video>` and `<audio>` are not — so of the two raw-media scenarios above,
+  # the `<img>` one arrives as an `html_block` and the `<video>` one as an
+  # `html_inline` already, without either of them being written for it.
+  #
+  # Which means the `<img>` half of the inline route was the gap: a picture in a
+  # sentence is the shape a document actually uses, and a preview that resolved
+  # the block form and not the inline one would show a figure and a broken box.
+  Scenario: A raw HTML image inside a line of prose is resolved
+    Given the host resolves image sources
+    And a markdown document:
+      """
+      Text before <img src="inline.png"> and after.
+      """
+    When the preview renders it
+    Then the host was asked to resolve "inline.png"
+    And the image is loaded from "resolved:inline.png"
 
   # The half that is not "did it resolve" but "did it resolve the right text":
   # `data-src` and `srcset` both contain the letters s-r-c and neither is the

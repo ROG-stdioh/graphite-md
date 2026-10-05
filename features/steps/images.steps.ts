@@ -3,7 +3,11 @@
 //
 // See document.steps.ts for why every step takes a world type argument and
 // every parameter an annotation.
+import type * as Html from '../lib/html';
 import type { PreviewWorld } from '../support/world';
+
+const { allElements, attrOf, byTag, parseHtml }: typeof Html =
+  require('../lib/html.ts') as typeof Html;
 
 const assert: typeof import('assert') = require('assert') as typeof import('assert');
 const { Given, Then } = require('@cucumber/cucumber') as typeof import('@cucumber/cucumber');
@@ -19,36 +23,23 @@ const { parseSourceRef, planImageSource } = require('../../src/sourceRef.ts') as
 // does not bind to a step's parameter at all, so absence needs a name.
 const ABSENT = 'none';
 
-// Neither pattern carries the `g` flag, so `exec` always searches from the
-// start and reusing them across calls is safe.
-const SRC_ATTR = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/;
-const ALT_ATTR = /\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+// The tags are read off the parse rather than matched as patterns over the
+// string. The patterns matched `<img …>` and `<video …>` written inside a
+// fenced code block, where the angle brackets are text — so "no image reached
+// the page" and "the host was never asked to resolve anything" could both be
+// contradicted by a document that merely shows the markup it is talking about.
 
-/**
- * One attribute's value out of a tag, whichever quote style it was written in.
- *
- * Both styles, because a raw `<img src='x.png'>` is legal HTML and the renderer
- * now resolves one. The leading `\s` is the same guard the renderer's own
- * pattern carries: without it `\bsrc` matches the `src` in `data-src`, and this
- * would read the wrong attribute out of the tag it is describing.
- *
- * Indexed rather than searched for the first defined group: the alternation has
- * exactly two, so at most one of them matched, and under noUncheckedIndexedAccess
- * the two lookups are already `string | undefined` — which is what makes `??`
- * the right shape here rather than a filter over an array typed `string[]`.
- */
-function attrValue(tag: string, pattern: RegExp): string {
-  const m = pattern.exec(tag);
-  return m?.[1] ?? m?.[2] ?? '';
-}
-
-/** Every `<img>` the preview emitted, as {src, alt}. */
-function imageTags(html: string): { src: string; alt: string }[] {
-  return [...html.matchAll(/<img\b[^>]*>/g)].map(([tag = '']) => ({
-    src: attrValue(tag, SRC_ATTR),
-    alt: attrValue(tag, ALT_ATTR),
+/** Every `<img>` the preview emitted, as {src, alt, title}. */
+function imageTags(html: string): { src: string; alt: string; title: string }[] {
+  return byTag(parseHtml(html), 'img').map((el) => ({
+    src: attrOf(el, 'src') ?? '',
+    alt: attrOf(el, 'alt') ?? '',
+    title: attrOf(el, 'title') ?? '',
   }));
 }
+
+/** The tags a document can put a media source on. */
+const MEDIA_TAGS = new Set(['video', 'audio', 'source']);
 
 // ---- the renderer's half -------------------------------------------------
 
@@ -83,6 +74,21 @@ Then<PreviewWorld>('the image is loaded from {string}', function (expected: stri
   );
 });
 
+// The `title`, which no scenario asserted. It is the tooltip rather than the
+// description, so it is not the same claim as the alt text — and on the
+// Markdown route it arrives from the same `![]()` as the `src` the resolver is
+// handed, so a rewrite that reconstructed the tag from the resolver's answer
+// would drop it while leaving both the source and the alt exactly right.
+Then<PreviewWorld>('the image is captioned {string}', function (expected: string) {
+  const images = imageTags(this.html);
+  assert.ok(images.length > 0, 'no <img> reached the page at all');
+  assert.strictEqual(
+    images[0]?.title,
+    expected,
+    `the image is captioned ${JSON.stringify(images[0]?.title)}, expected ${JSON.stringify(expected)}`
+  );
+});
+
 // The negative half of the two above, and the reason it is a step of its own:
 // "nothing was rewritten" is not the same assertion as "the right thing was
 // rewritten", and the failure it catches is a rewrite that reached an attribute
@@ -96,11 +102,11 @@ Then<PreviewWorld>('the host was never asked to resolve anything', function () {
   );
 });
 
-/** Every `<video>`/`<audio>`/`<source>` the preview emitted. */
+/** Every `<video>`/`<audio>`/`<source>` the preview emitted, in document order. */
 function mediaSources(html: string): string[] {
-  return [...html.matchAll(/<(?:video|audio|source)\b[^>]*>/gi)].map(
-    ([tag = '']) => /\bsrc="([^"]*)"/.exec(tag)?.[1] ?? ''
-  );
+  return allElements(parseHtml(html))
+    .filter((el) => MEDIA_TAGS.has(el.tagName))
+    .map((el) => attrOf(el, 'src') ?? '');
 }
 
 Then<PreviewWorld>('the video is loaded from {string}', function (expected: string) {

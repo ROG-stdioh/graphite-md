@@ -335,8 +335,23 @@ const persistedScrollTop = restored.scrollTop;
  */
 const collapsedBodies = new Set<string>(restored.collapsed);
 
+/**
+ * Whether the reader has the outline pane folded away.
+ *
+ * A boolean rather than a set, because there is one pane: the fold is the
+ * pane's whole state and there is nothing per-element about it. Remembered for
+ * the same reason the folded sections are — every edit to the source file
+ * rebuilds this page, and a pane that sprang back open on every keystroke
+ * would be the preview undoing something the reader did.
+ */
+let outlineCollapsed = restored.outlineCollapsed;
+
 function persistState(): void {
-  vscode.setState({ scrollTop: contentPane.scrollTop, collapsed: [...collapsedBodies] });
+  vscode.setState({
+    scrollTop: contentPane.scrollTop,
+    collapsed: [...collapsedBodies],
+    outlineCollapsed,
+  });
 }
 
 /**
@@ -344,14 +359,26 @@ function persistState(): void {
  *
  * `getState()` is typed `unknown`, and it is right to be: the value comes back
  * from the host, and this file is the only thing that ever put anything in it.
- * Reading the two fields out is a check, not an assertion.
+ * Reading the three fields out is a check, not an assertion.
  */
-function readState(raw: unknown): { scrollTop: number | null; collapsed: string[] } {
-  if (typeof raw !== 'object' || raw === null) return { scrollTop: null, collapsed: [] };
-  const { scrollTop, collapsed } = raw as { scrollTop?: unknown; collapsed?: unknown };
+function readState(
+  raw: unknown
+): { scrollTop: number | null; collapsed: string[]; outlineCollapsed: boolean } {
+  if (typeof raw !== 'object' || raw === null) {
+    return { scrollTop: null, collapsed: [], outlineCollapsed: false };
+  }
+  const { scrollTop, collapsed, outlineCollapsed: rawOutline } = raw as {
+    scrollTop?: unknown;
+    collapsed?: unknown;
+    outlineCollapsed?: unknown;
+  };
   return {
     scrollTop: typeof scrollTop === 'number' ? scrollTop : null,
     collapsed: Array.isArray(collapsed) ? collapsed.filter((id): id is string => typeof id === 'string') : [],
+    // Strictly `true`, not truthy: the store is the host's and may hold what
+    // some other build of this page wrote, and only this page's own `true`
+    // means the reader folded the pane.
+    outlineCollapsed: rawOutline === true,
   };
 }
 
@@ -462,6 +489,13 @@ document.addEventListener('click', (e) => {
   const body = document.getElementById(target);
   if (!body) return;
   setCollapsed(body, !body.classList.contains('collapsed'));
+  // A fold changes which headings are on screen — it takes a whole subtree's
+  // worth of them off, and shortens the document, which can carry the reader
+  // past a heading they have not scrolled to. The browser fires no scroll event
+  // for that on its own, and the sweep is the only thing that knows a heading
+  // without a box is not a heading you can be reading, so it is asked again
+  // rather than left holding an answer about a section that is now folded.
+  onScroll();
 });
 
 /**
@@ -599,7 +633,8 @@ function navigateTo(id: string): void {
 }
 
 // ================= custom overlay scrollbars =================
-function attachScrollbar(wrap: HTMLElement): void {
+/** Returns its `sync`, so whoever hides a wrap can put the bar right again. */
+function attachScrollbar(wrap: HTMLElement): () => void {
   const body = must(wrap.querySelector<HTMLElement>('.scroll-body'), 'a .scroll-body inside a scroll wrap');
   const thumb = must(wrap.querySelector<HTMLElement>('.scroll-thumb'), 'a .scroll-thumb inside a scroll wrap');
   const track = must(wrap.querySelector<HTMLElement>('.scroll-track'), 'a .scroll-track inside a scroll wrap');
@@ -607,6 +642,14 @@ function attachScrollbar(wrap: HTMLElement): void {
 
   function sync(): void {
     const trackH = track.clientHeight;
+    // A hidden wrap measures as zero everywhere, and `0/0` is NaN — which does
+    // not throw. The thumb would be handed the literal "NaNpx" for its height
+    // and its position, the style system would accept both and apply neither,
+    // and the bar would come back from the fold invisible with nothing logged
+    // anywhere to say why. The window resize listener fires whether or not a
+    // pane is showing, which is how a hidden wrap gets synced at all; there is
+    // simply nothing to sync, so it is said here rather than at each caller.
+    if (trackH === 0 || body.clientHeight === 0) return;
     const ratio = body.clientHeight / body.scrollHeight;
     if (ratio >= 1) {
       thumb.style.opacity = '0';
@@ -657,42 +700,247 @@ function attachScrollbar(wrap: HTMLElement): void {
     }
   });
   sync();
+  return sync;
 }
-document.querySelectorAll<HTMLElement>('.scroll-wrap').forEach((wrap) => {
-  attachScrollbar(wrap);
+// Collected rather than fired and forgotten. Folding the outline away is the
+// one thing that changes a wrap's geometry without the reader resizing
+// anything, so the control that brings it back has to be able to run these
+// again by hand.
+const syncScrollbars = Array.from(document.querySelectorAll<HTMLElement>('.scroll-wrap')).map((wrap) =>
+  attachScrollbar(wrap)
+);
+
+// ================= folding the outline pane away =================
+// The pane is a fixed 300px flex item, and a reader who is here to read rather
+// than to navigate is giving it a share of the window for something they are
+// not looking at.
+//
+// How the fold is *drawn* belongs to the stylesheet and depends on
+// `graphiteMd.animation`: a width transition when it is on, and the
+// `display: none` it has always been when it is off. What belongs here is that
+// the two are not interchangeable to the code around them — a transition takes
+// 200ms to finish and a display change does not — so the wait below is chosen
+// to match, from the same answer the CSS is working from.
+const tocWrap = byId('tocPaneWrap');
+const outlineToggle = byId('outlineToggle');
+
+/**
+ * Whether the fold on this page actually takes time to finish.
+ *
+ * Asked of the element rather than of the setting, because the answer comes
+ * from two places that both belong to the stylesheet: `graphiteMd.animation`
+ * decides whether the width is transitioned at all, and `prefers-reduced-motion`
+ * takes that transition away again for a reader who has asked the system for
+ * less motion. Reading the computed duration is the one question that covers
+ * both, and unlike a second copy of the rules here it cannot drift from the CSS.
+ */
+function foldIsAnimated(): boolean {
+  return parseFloat(getComputedStyle(tocWrap).transitionDuration) > 0;
+}
+
+/**
+ * Runs `fn` once the pane's width has stopped moving.
+ *
+ * `transitionend` fires once per animated property, so it is filtered to the one
+ * being waited on: the border's colour fades over the same 200ms and would
+ * otherwise be able to answer first. The timer is the backstop for a transition
+ * that never runs at all — a backgrounded tab does not animate — because a page
+ * waiting on an event that never came would leave the reading column's bar the
+ * wrong size for as long as it stayed open. Both paths go through one `done`
+ * flag, so whichever arrives first wins and the other costs nothing.
+ */
+function whenWidthSettles(fn: () => void): void {
+  let done = false;
+  const finish = (): void => {
+    if (done) return;
+    done = true;
+    tocWrap.removeEventListener('transitionend', onEnd);
+    fn();
+  };
+  const onEnd = (event: TransitionEvent): void => {
+    if (event.propertyName === 'width') finish();
+  };
+  tocWrap.addEventListener('transitionend', onEnd);
+  setTimeout(finish, 400);
+}
+
+/** Draws the fold, and keeps the button's announcement in step with it. */
+function applyOutlineCollapsed(collapsed: boolean): void {
+  tocWrap.classList.toggle('collapsed', collapsed);
+  // Folded, the pane is either `display: none` or a zero-width box, and only
+  // the first of those takes it out of the tab order on its own — the animated
+  // fold leaves a pane that is still there, invisible, and reachable by Tab
+  // from the reading column. `inert` is the one property that means "not there"
+  // to a keyboard and a screen reader alike, and it says the same thing in both
+  // folds rather than only the one that gets it for free.
+  tocWrap.inert = collapsed;
+  // `aria-expanded` is the pane's state and the label is the action, so the two
+  // read as opposites — a button whose announcement contradicts what it does is
+  // worse for a screen reader than one that says nothing at all.
+  outlineToggle.setAttribute('aria-expanded', String(!collapsed));
+  outlineToggle.setAttribute('aria-label', collapsed ? 'Show the outline' : 'Hide the outline');
+}
+
+function setOutlineCollapsed(collapsed: boolean): void {
+  outlineCollapsed = collapsed;
+  // Read before the fold is drawn, because drawing it is what takes focus away:
+  // an element inside a `display: none` subtree cannot hold focus and an inert
+  // one is not allowed to, so the browser moves focus to the body either way —
+  // which drops a keyboard reader at the top of the document with no sign of
+  // where they were. The control that closed the pane is the one place they can
+  // carry on from, and only when focus was inside the pane: taking it from the
+  // document on every fold would be its own bug.
+  const focusWasInPane = tocWrap.contains(document.activeElement);
+  applyOutlineCollapsed(collapsed);
+  persistState();
+  if (collapsed && focusWasInPane) outlineToggle.focus();
+
+  // One frame, in both directions, because the fold changes the width of the
+  // pane that does not fold: the content column keeps its percentage of a wider
+  // pane, so every paragraph in it re-wraps and there is a different amount of
+  // it to scroll. The scrollbars are re-synced from here rather than from the
+  // resize listener, which never hears about this — and sync() writes nothing
+  // while the outline is gone, so the folded wrap is a no-op either way.
+  //
+  // The graphs are redrawn only on the way back, and that is the half that
+  // cannot be left to a later resize: a window resize while the pane was folded
+  // redrew all three, and a graph whose rows sit inside a `display: none` pane
+  // lays out none of them — drawGraph clears its svg before it gives up, so the
+  // outline would come back as a blank corner with nothing logged. The frame is
+  // also what makes the rows measurable again: the class is off, but the layout
+  // that follows it has not happened yet. The state is read when the frame runs
+  // rather than captured from the argument, so two clicks inside one frame
+  // cannot queue a draw for a state the page has already left.
+  requestAnimationFrame(() => {
+    if (!outlineCollapsed) {
+      contentGraph.drawGraph();
+      tablesGraph.drawGraph();
+      diagramsGraph.drawGraph();
+    }
+    const sync = (): void => { syncScrollbars.forEach((fn) => { fn(); }); };
+    // An animated fold is not over when that frame runs. The reading column is
+    // still re-wrapping under a wrap that is on its way to zero, so syncing
+    // there measures a layout the page is about to leave — the content bar comes
+    // back the wrong size and stays wrong until the reader happens to scroll.
+    // The end of the width transition is the first moment the geometry is real.
+    if (foldIsAnimated()) whenWidthSettles(sync);
+    else sync();
+  });
+}
+
+outlineToggle.addEventListener('click', () => {
+  setOutlineCollapsed(!outlineCollapsed);
 });
 
+// Applied here at load rather than from inside the init frame. This page is a
+// script at the end of the body, so nothing has painted yet; a fold put back a
+// frame later would show the reader the pane that their last look at this
+// document had closed.
+applyOutlineCollapsed(outlineCollapsed);
+
 // ================= scroll-spy (content headings only, suppressed while navLock is true) =================
+// Every heading in the document, in document order, collected once. The ones
+// inside a folded section are in here on purpose: a fold is the sweep's own
+// problem to notice, below, and filtering them out at collection time would
+// mean collecting again on every fold.
 const headings = Array.from(document.querySelectorAll<HTMLElement>('.section-head'));
+
+/** How far below the pane's top edge a heading has to fall to be the one being read. */
+const ACTIVE_HEADING_LINE = 80;
+
+/**
+ * Whether the pane has no more to scroll.
+ *
+ * One pixel of slack rather than an exact comparison: a fractional zoom level
+ * leaves `scrollTop` a fraction short of `scrollHeight - clientHeight`, and a
+ * preview that is for ever "not quite at the bottom" is the failure this
+ * exists to describe.
+ */
+function atEndOfScroll(): boolean {
+  return contentPane.scrollTop + contentPane.clientHeight >= contentPane.scrollHeight - 1;
+}
 
 function onScroll(): void {
   if (navLock) return;
-  const first = headings[0];
-  let currentId: string | null = first ? first.dataset.target ?? null : null;
   const paneTop = contentPane.getBoundingClientRect().top;
+
+  // The last heading whose top has passed the line. Initialised to the first so
+  // that a reader who has not scrolled yet sees the opening section rather than
+  // no section at all.
+  //
+  // A heading with no box is skipped, and that is the one part of this that is
+  // not geometry. Everything under `.section-body.collapsed` is `display: none`,
+  // and an element with no box measures as a rect of zeros — a top of 0 is above
+  // every line, so without this every heading in every folded section passes no
+  // matter where the pane is, and the last of them wins whenever it comes after
+  // the last visible heading that passed. The height of the rect already in hand
+  // is what says whether there is a box; `offsetParent` would be a second read
+  // for the same answer.
+  //
+  // `lastVisible` falls out of the same pass, for the rule below.
+  const first = headings[0];
+  let currentId: string | null = first?.dataset.target ?? null;
+  let lastVisible: HTMLElement | null = null;
   for (const h of headings) {
     const r = h.getBoundingClientRect();
-    if (r.top - paneTop < 80) currentId = h.dataset.target ?? null;
+    if (r.height === 0) continue;
+    lastVisible = h;
+    if (r.top - paneTop < ACTIVE_HEADING_LINE) currentId = h.dataset.target ?? null;
   }
+
+  // The rule above cannot reach the end of a document by itself. Scrolling
+  // stops when the document's end meets the pane's bottom edge, so a heading
+  // passes the line only if what follows it is at least as tall as the pane —
+  // and what follows the last heading is one section body, normally shorter
+  // than that. That heading, and often the two or three before it, can
+  // therefore never be reached, and the highlight stops advancing while the
+  // page still has more to show.
+  //
+  // At the end of the scroll the last heading that has a box is the one on
+  // screen, whatever its distance from the top. Which is why the sweep above
+  // has to know about folded sections for this to be right: in a document whose
+  // last section is folded, the last heading overall is a hidden one.
+  //
+  // Only when the pane can scroll at all. A document that fits entirely has no
+  // end to reach — and `atEndOfScroll` is true of it from the first frame, for
+  // the same reason — so the sweep has already answered for it.
+  const scrollable = contentPane.scrollHeight > contentPane.clientHeight;
+  if (lastVisible !== null && scrollable && atEndOfScroll()) {
+    currentId = lastVisible.dataset.target ?? null;
+  }
+
   contentGraph.setActive(currentId);
 }
 contentPane.addEventListener('scroll', onScroll);
 
-// ================= reading width — live sync if settings.json is edited
-//                    directly while the preview is open (no in-panel UI) =================
+// ================= messages from the host =================
+// Two of them today: the reading width, pushed live when settings.json is edited
+// directly under an open preview (there is no in-panel UI for it), and the
+// palette command's request to fold the outline.
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const message = event.data;
   if (!isHostToWebview(message)) return;
   // A switch rather than an `if`, for the same reason the host's handler is
   // one: switch-exhaustiveness-check fails the build when a variant is added to
-  // HostToWebview and not handled here. With a single variant that costs one
-  // always-true condition, which is what the rule below is objecting to — it is
-  // correct, and the check is kept anyway because it is the thing that will
-  // catch the second variant.
+  // HostToWebview and not handled here.
   switch (message.type) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- HostToWebview has one variant today; the switch is what makes adding a second a compile error
     case 'contentWidth':
       document.body.style.setProperty('--content-width', `${message.value}%`);
+      return;
+    // The fold's speed, changed under an open preview. It is an attribute
+    // rather than a class on the pane because the page is rebuilt from a string
+    // on every render and the stylesheet keys both folds off the body — see the
+    // CSS, and `buildWebviewHtml` for where it is first written.
+    case 'animation':
+      document.body.dataset.anim = message.value ? 'smooth' : 'instant';
+      return;
+    // The palette route to the fold the corner button offers, and it goes
+    // through the same `setOutlineCollapsed` for that reason: the announcement,
+    // the persisted state and the redraw-on-reopen all live in there, and a
+    // second path that folded the pane without them would leave a button
+    // claiming the opposite of what the page is showing.
+    case 'toggleOutline':
+      setOutlineCollapsed(!outlineCollapsed);
       return;
   }
 });

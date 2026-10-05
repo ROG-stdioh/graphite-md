@@ -362,6 +362,7 @@ async function main(): Promise<void> {
         cspSource: origin,
         remoteImages: false,
         contentWidth: 60,
+        animation: true,
         bodyHtml: rendered.html,
         headings: rendered.headings,
         tables: rendered.tables,

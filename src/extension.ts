@@ -4,7 +4,16 @@ import { renderMarkdown } from './markdown';
 import { isWebviewToHost } from './shared/protocol';
 import type { HostToWebview } from './shared/protocol';
 import { buildWebviewHtml } from './webviewHtml';
-import { resolveContentWidth, resolveRemoteImages, REMOTE_IMAGES_DEFAULT, CONTENT_WIDTH_MIN } from './settings';
+import {
+  resolveContentWidth,
+  resolveRemoteImages,
+  resolveTypographer,
+  resolveAnimation,
+  REMOTE_IMAGES_DEFAULT,
+  TYPOGRAPHER_DEFAULT,
+  ANIMATION_DEFAULT,
+  CONTENT_WIDTH_MIN,
+} from './settings';
 import { taskMarkerColumn } from './taskMarker';
 import { planImageSource } from './sourceRef';
 import { span, report } from './shared/perf';
@@ -238,6 +247,21 @@ export function activate(context: vscode.ExtensionContext) {
       openPreview(vscode.ViewColumn.Beside);
     }),
 
+    // The keyboard route to the fold the webview's corner control offers. The
+    // host asks and the page decides, because the folded state lives in the
+    // webview — see the variant's note in src/shared/protocol.ts. With no
+    // preview open there is nothing to ask, and the command is reachable in
+    // that state from the palette, so it says so in the log rather than looking
+    // broken.
+    vscode.commands.registerCommand('graphiteMd.toggleOutline', () => {
+      if (!currentPanel) {
+        log.debug('toggleOutline: no preview is open');
+        return;
+      }
+      const message: HostToWebview = { type: 'toggleOutline' };
+      currentPanel.webview.postMessage(message);
+    }),
+
     // The way in for a user who has not discovered the Output dropdown, or who
     // has it scrolled to some other channel. Deliberately outside the two
     // `editorLangId == markdown` restrictions above: whatever has gone wrong may
@@ -272,6 +296,16 @@ export function activate(context: vscode.ExtensionContext) {
         currentPanel.webview.postMessage(message);
       }
 
+      // The fold's speed is a display setting like the reading width, so it
+      // takes the same path: a message rather than a re-render, because the
+      // page a re-render replaces has a scroll position, a fold state and a
+      // drawn diagram in it, and a rebuild throws all three away to change how
+      // long an animation lasts.
+      if (currentPanel && e.affectsConfiguration('graphiteMd.animation')) {
+        const message: HostToWebview = { type: 'animation', value: getAnimation() };
+        currentPanel.webview.postMessage(message);
+      }
+
       // Remote images cannot take the message path above: the answer lives in
       // the page's CSP, which is part of the document, so changing it needs a
       // new one. Scroll position is lost, which is the honest cost of changing
@@ -300,6 +334,24 @@ function getRemoteImages(): boolean {
   const declared = config.inspect<unknown>('remoteImages')?.defaultValue;
   const fallback = typeof declared === 'boolean' ? declared : REMOTE_IMAGES_DEFAULT;
   return resolveRemoteImages(config.get('remoteImages'), fallback);
+}
+
+function getAnimation(): boolean {
+  const config = vscode.workspace.getConfiguration('graphiteMd');
+  // Same reasoning as the three above: the default belongs to the contribution
+  // in package.json, and a second copy here is how the two drift apart.
+  const declared = config.inspect<unknown>('animation')?.defaultValue;
+  const fallback = typeof declared === 'boolean' ? declared : ANIMATION_DEFAULT;
+  return resolveAnimation(config.get('animation'), fallback);
+}
+
+function getTypographer(): boolean {
+  const config = vscode.workspace.getConfiguration('graphiteMd');
+  // And again: the two numbers this setting has — on here, off in VS Code's own
+  // preview — both live in package.json rather than in this file.
+  const declared = config.inspect<unknown>('typographer')?.defaultValue;
+  const fallback = typeof declared === 'boolean' ? declared : TYPOGRAPHER_DEFAULT;
+  return resolveTypographer(config.get('typographer'), fallback);
 }
 
 /**
@@ -528,6 +580,7 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
   try {
     result = renderMarkdown(source, {
       resolveImage: imageSourceResolver(webview, currentDoc),
+      typographer: getTypographer(),
     });
   } catch (err) {
     log.error('failed to render document', err);
@@ -555,6 +608,7 @@ function renderIntoPanel(context: vscode.ExtensionContext) {
     cspSource: webview.cspSource,
     remoteImages: getRemoteImages(),
     contentWidth: getContentWidth(),
+    animation: getAnimation(),
     bodyHtml: html,
     headings,
     tables,

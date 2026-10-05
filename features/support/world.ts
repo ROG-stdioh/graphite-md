@@ -12,7 +12,7 @@
 // so the types are derived from their real definitions even though the values
 // cannot be imported.
 import type { IWorldOptions } from '@cucumber/cucumber';
-import type { RenderResult } from '../../src/markdown';
+import type { RenderEnv, RenderResult } from '../../src/markdown';
 // TocNode is the shared contract's type, not the renderer's — src/markdown.ts
 // imports it from there too, and deliberately does not re-export it. Naming it
 // from its real home is what keeps the outline shape single-sourced across the
@@ -117,6 +117,38 @@ class PreviewWorld extends World {
    * about the document.
    */
   remoteImages: boolean;
+  /**
+   * The `graphiteMd.animation` setting, as the page builder reads it.
+   *
+   * Here for the same reason `remoteImages` is: it reaches the page as an
+   * attribute on the body rather than as anything the renderer produces, so a
+   * scenario about a document cannot reach it and one about the page can.
+   */
+  animation: boolean;
+  /**
+   * The `graphiteMd.typographer` setting, as the renderer reads it.
+   *
+   * Three states rather than two: `null` is the setting being absent, which is
+   * what a reader who has never opened settings.json has — and which default
+   * applies then is a deliberate divergence from VS Code's preview, so the
+   * absent state is worth a scenario of its own rather than being folded into
+   * `true`.
+   */
+  typographer: boolean | null;
+  /**
+   * The log steps' scratch space: the line a message and its cause join into,
+   * the one-line form of a webview message, and the text that went in.
+   *
+   * On the world rather than in the module that defines the steps. A binding at
+   * module scope outlives the scenario that set it, so a Then that ran without
+   * its Given would read the previous scenario's value and pass — the one shape
+   * of failure a test may never have. The world is constructed per scenario,
+   * which turns the reset into a guarantee instead of a convention.
+   *
+   * Named around `World.log`, which Cucumber's base class already defines as a
+   * method — an override has to be assignable to it, and this is not.
+   */
+  logState: { line: string; bounded: string; original: string };
 
   constructor(options: IWorldOptions) {
     super(options);
@@ -127,13 +159,20 @@ class PreviewWorld extends World {
     this.refSource = '';
     this.docInFolder = false;
     this.remoteImages = false;
+    this.animation = true;
+    this.typographer = null;
+    this.logState = { line: '', bounded: '', original: '' };
   }
 
   // Render the document the scenario built up.
   render(): RenderResult {
-    this.result = this.imageResolver
-      ? renderMarkdown(this.source, { resolveImage: this.imageResolver })
-      : renderMarkdown(this.source);
+    const env: RenderEnv = {};
+    if (this.imageResolver) env.resolveImage = this.imageResolver;
+    // `null` is left unset on purpose: the renderer answers for what a document
+    // with no setting looks like, and passing `undefined` through is what keeps
+    // the default in src/settings.ts rather than in this file as well.
+    if (this.typographer !== null) env.typographer = this.typographer;
+    this.result = renderMarkdown(this.source, env);
     return this.result;
   }
 
@@ -172,6 +211,7 @@ class PreviewWorld extends World {
     return buildWebviewHtml({
       ...PAGE_STAND_IN,
       remoteImages: this.remoteImages,
+      animation: this.animation,
       bodyHtml: this.html,
     });
   }

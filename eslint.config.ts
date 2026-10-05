@@ -9,11 +9,12 @@ const tseslint = require('typescript-eslint') as typeof import('typescript-eslin
 // typescript-eslint's; only the wrapper is core's.
 const { defineConfig } = require('eslint/config') as typeof import('eslint/config');
 
-// The two programs' file sets, named once so that no block below can come to
+// The three programs' file sets, named once so that no block below can come to
 // disagree with the one beside it about what the tooling is. See tsconfig.json
-// for HOST and tsconfig.node.json for TOOLING.
+// for HOST, tsconfig.node.json for TOOLING and test/tsconfig.json for TESTS.
 const HOST = ['src/**/*.ts'];
 const TOOLING = ['esbuild.ts', 'eslint.config.ts', 'scripts/**/*.ts', 'features/**/*.ts'];
+const TESTS = ['test/**/*.ts'];
 
 module.exports = defineConfig(
   {
@@ -26,6 +27,21 @@ module.exports = defineConfig(
       // package's own loader rather than assumed. It is 20 lines of data with
       // no logic, so nothing type-aware is lost.
       'cucumber.js',
+      // The second file in the repo that is still JavaScript, and it has to be
+      // for the same kind of reason: @vscode/test-cli discovers its
+      // configuration from a fixed list of names — .vscode-test.js, .mjs, .cjs,
+      // .json — none of which is TypeScript's, so converting it would mean the
+      // integration suite quietly stopped having a config. Twelve lines of data
+      // with no logic; nothing type-aware is lost.
+      '.vscode-test.mjs',
+      // The editor @vscode/test-cli downloads for the integration suite: a
+      // second copy of VS Code on disk, bundled extensions and all. One of
+      // those extensions ships its own eslint.config.mjs, and ESLint tries to
+      // load it — dying with "Cannot find package '@eslint/js'" because that
+      // config is written for the packages inside that editor, not for this
+      // repo. Flat config's only default ignores are node_modules and .git, so
+      // this has to be said out loud.
+      '.vscode-test/**',
       // Generated: media/preview.js is the webview bundle, media/vendor/** is
       // copied out of node_modules. Neither is source.
       'media/**',
@@ -42,11 +58,11 @@ module.exports = defineConfig(
   ...tseslint.configs.strictTypeChecked,
 
   // Rules whose reason does not depend on which program a file is in, so they
-  // are written once and apply to both. That is the point: these two were
+  // are written once and apply to all of them. That is the point: these two were
   // written for src/ alone, and the tooling then reported 15 errors between
   // them for doing exactly what src/ is allowed to do.
   {
-    files: [...HOST, ...TOOLING],
+    files: [...HOST, ...TOOLING, ...TESTS],
     rules: {
       // The message protocol is a discriminated union joined by `type`. This is
       // the rule that fails when a variant is added and one side of the
@@ -143,6 +159,19 @@ module.exports = defineConfig(
       // src/ is unaffected: it is bundled by esbuild and imports normally, and
       // this rule still applies there.
       '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  {
+    // The integration suite — see test/tsconfig.json. Its own program, named
+    // rather than resolved: these files are the only ones in the repo that emit,
+    // and the config that says so is the one that has to type them.
+    files: TESTS,
+    languageOptions: {
+      parserOptions: {
+        project: ['./test/tsconfig.json'],
+        tsconfigRootDir: __dirname,
+      },
     },
   }
 );

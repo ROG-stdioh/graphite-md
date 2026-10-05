@@ -25,7 +25,18 @@ three views:
 Only one view is open at a time. Click any node to soft-scroll to that part
 of the document; the outline highlights where you are as you scroll.
 
+It also folds away when you want the width back — the chevron in the preview's
+top-right corner, **graphite.md: Toggle Outline** from the Command Palette, or
+`Ctrl+G O`. With the pane gone the reading column takes the whole width and
+your text re-wraps to match, and which panels you folded is remembered per
+preview.
+
 ![The preview scrolled to a deeply nested heading. In the outline panel, the path from Content down to the current section is drawn in accent, and the section itself is highlighted.](images/outline.png)
+
+**Front matter, as a table.** A YAML block at the top of a document — a title,
+a date, tags — arrives as key/value rows rather than as a stray heading in the
+outline, the same treatment VS Code's own preview gives it. Front matter that
+won't parse is reported as an error block instead of half a table.
 
 **Checklists.** Write `- [ ]` and `- [x]` as usual. In the preview they
 render as real, clickable checkboxes — checking one off edits your markdown
@@ -81,8 +92,9 @@ highlight.js, tinted to match the graphite theme.
 ## Usage
 
 1. Open a `.md` file.
-2. Run **graphite.md: Open Preview to the Side** from the Command Palette,
-   or press `Ctrl+K V` (`Cmd+K V` on macOS).
+2. Run **graphite.md: Open Preview to the Side** from the Command Palette, or
+   press `Ctrl+G S`. `Ctrl+G P` opens the preview in the current editor group
+   instead, and `Ctrl+G O` folds the outline pane away.
 3. The preview updates live as you type.
 
 If the preview ever misbehaves, the **graphite.md** output channel is where to
@@ -97,6 +109,8 @@ and every image the preview declined to load with the reason it declined.
 |---|---|---|---|
 | `graphiteMd.contentWidth` | number (40–100) | `60` | Width of the reading column, as a percentage of the available preview pane width. |
 | `graphiteMd.remoteImages` | boolean | `false` | Load images from the network. Off by default — images stored beside the document always work, and turning this on lets any document you preview make requests to servers its author picked. |
+| `graphiteMd.typographer` | boolean | `true` | Turn what you typed into its typographic forms: straight quotes become curly, `--` becomes an en dash, `...` becomes an ellipsis. Code is never touched. VS Code's own preview has the same option (`markdown.preview.typographer`) with it off — so this is the one setting where the two previews disagree by default. |
+| `graphiteMd.animation` | boolean | `true` | Animate the outline as it folds and unfolds. Turn it off for an instant fold, which is worth doing if you read in a narrow window: the reading column keeps its share of the width while the pane moves, so an animated fold re-wraps the text under you for its length. Either way the fold follows the system's "reduce motion" setting. |
 
 ## Requirements
 
@@ -138,8 +152,6 @@ VS Code 1.134.0 or later. No other setup — everything the preview needs
 - The preview doesn't follow the editor cursor, or the editor the preview.
   Re-rendering after an edit does preserve your scroll position, so you aren't
   thrown back to the top.
-- The outline panel is a fixed width and can't be collapsed yet.
-  ([#3](https://github.com/ROG-stdioh/graphite-md/issues/3))
 
 ## Contributing
 

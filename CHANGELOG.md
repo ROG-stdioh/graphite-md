@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-05
+
+The outline folds away, front matter renders as a table, and the preview stops
+disagreeing with VS Code's own in three places it had quietly drifted. Behind
+all of it: the preview now has a test suite behind it — the renderer, the editor
+seam, and the live page — and most of the fixes below are things it found.
+
+### Added
+
+- **The outline pane folds away.** A chevron in the preview's top-right corner
+  hides "On this page" and brings it back, **graphite.md: Toggle Outline** does
+  the same from the Command Palette or `Ctrl+G O`, and the fold is remembered
+  per preview panel — an edit that rebuilds the page does not spring it open
+  again. With the pane gone the reading column takes the width, and the text
+  re-wraps to match.
+  ([#3](https://github.com/ROG-stdioh/graphite-md/issues/3))
+- **Front matter renders as a table.** A YAML block at the top of a document —
+  a title, a date, tags — arrives as key/value rows rather than as a stray
+  heading in the outline, which is what VS Code's own preview does with it. The
+  values are escaped rather than rendered as Markdown, and front matter that
+  will not parse is reported as an error block instead of half a table.
+  ([#47](https://github.com/ROG-stdioh/graphite-md/issues/47))
+- **`graphiteMd.typographer`**, on by default: the straight quotes, `--` and
+  `...` you type become their typographic forms, and code is never touched.
+  This was always on; it is now a setting, named the way VS Code's own preview
+  names it (`markdown.preview.typographer`) — which defaults to off, so a
+  document can read slightly differently in the two previews.
+  ([#34](https://github.com/ROG-stdioh/graphite-md/issues/34))
+- **`graphiteMd.animation`**, on by default: turn it off and the outline folds
+  instantly instead of animating. Worth doing if you read long documents in a
+  narrow window, where an animated fold re-wraps the text under you for the
+  length of it. Either way the fold follows the system's "reduce motion"
+  setting.
+
+### Changed
+
+- **`Ctrl+K V` is no longer graphite.md's shortcut.** It is claimed by VS
+  Code's built-in Markdown preview, so the same keystroke meant different things
+  in different windows depending on which extension answered it. graphite.md's
+  commands now sit under a chord nothing else claims: `Ctrl+G P` opens the
+  preview, `Ctrl+G S` opens it to the side, `Ctrl+G O` folds the outline.
+  ([#45](https://github.com/ROG-stdioh/graphite-md/issues/45))
+
+### Fixed
+
+- **A heading anchor keeps its non-Latin text.** `## 中文` was being reduced to
+  `#section`, so a link written to it went nowhere. Anchors now keep Unicode
+  letters, the way GitHub's do, while keeping the `section` fallback for a
+  heading with nothing sluggable in it.
+  ([#33](https://github.com/ROG-stdioh/graphite-md/issues/33))
+- **A price no longer swallows the formula after it.** `$5 and $10` left the
+  `$` characters unpaired and the next `$…$` in the paragraph was matched
+  across them. ([#38](https://github.com/ROG-stdioh/graphite-md/issues/38))
+- **Two `$$` placements no longer break their paragraph.** A line starting with
+  `$$` dropped everything after the closing pair, and a `$$…$$` in the middle of
+  a line put block markup inside a paragraph.
+  ([#40](https://github.com/ROG-stdioh/graphite-md/issues/40),
+  [#41](https://github.com/ROG-stdioh/graphite-md/issues/41))
+- **A table or a diagram written above the first heading reaches the outline,
+  and the table gets an `id`.** The scan for both views ran over each section's
+  body and never over the intro block, so an intro table had no name at all —
+  there was nothing for an entry to point at and nothing to link to.
+  ([#44](https://github.com/ROG-stdioh/graphite-md/issues/44))
+- **The outline's highlight reaches the end of a document.** It stopped
+  advancing before the last heading, because a heading only counted once
+  something below it was tall enough to push it past the reading line — and the
+  last section's own body never is. Two more things about the same sweep: a
+  heading inside a folded section could win it, since a hidden element measures
+  as zeros and a top of zero is above every line; and folding a section did not
+  ask for the sweep again at all, because a fold fires no scroll event.
+  ([#35](https://github.com/ROG-stdioh/graphite-md/issues/35),
+  [#36](https://github.com/ROG-stdioh/graphite-md/issues/36))
+- **A document with no `#` heading no longer renders its first paragraph as a
+  subtitle.** The subtitle rule reads "the first paragraph after the title",
+  and it was applied to whichever paragraph came first, so a note that opens
+  with a sentence had that line served a size and a colour larger than the rest.
+  ([#39](https://github.com/ROG-stdioh/graphite-md/issues/39))
+- **The first paint is no longer a 300×150 miniature.** VS Code hands the panel
+  its document before the panel around it has been laid out, and the page was
+  written into a frame with no size of its own — where the fixed-width outline
+  is the whole viewport and the reading pane collapses to nothing. The page now
+  holds itself back until the frame has a size, painting the panel's own
+  background in the meantime.
+  ([#46](https://github.com/ROG-stdioh/graphite-md/issues/46))
+
 ## [0.2.0] - 2026-10-01
 
 Raw HTML, at last — the one place the preview disagreed with VS Code's own and
@@ -185,7 +270,9 @@ Initial release.
 - **Tunable reading width** — the `graphiteMd.contentWidth` setting (40–100),
   applied to an open preview immediately.
 
-[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ROG-stdioh/graphite-md/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ROG-stdioh/graphite-md/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ROG-stdioh/graphite-md/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/ROG-stdioh/graphite-md/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/ROG-stdioh/graphite-md/releases/tag/v0.0.1

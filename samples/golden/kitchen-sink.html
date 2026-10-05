@@ -1,0 +1,888 @@
+<h1 class="doc-title">graphite.md — Kitchen Sink</h1>
+<table class="frontmatter"><tbody><tr><th>title</th><td>graphite.md — Kitchen Sink</td></tr><tr><th>tags</th><td><ul><li>sample</li><li>conformance</li></ul></td></tr></tbody></table><p class="doc-sub">Everything the preview can render, in one file.</p>
+<p>The three lines above the title are front matter, and they are drawn as the
+table at the top of the page rather than as the rule and stray heading they used
+to be. The title and the tags are the two rows of it. The paragraph above this
+one is the subtitle — the renderer gives the first paragraph after the title
+<code>class=&quot;doc-sub&quot;</code>, which is the “a title, then one line” shape most documents
+want — and this is ordinary body text.</p>
+<p>Open the file in the Extension Development Host (<code>npm run build</code>, then F5) to
+eyeball the whole feature set at once, or point the check scripts at it:</p>
+<p><strong>Open the enclosing folder, not just this file.</strong> A preview may load local
+images from the workspace folders it was created with, or — when the document
+belongs to none — from the document’s own directory, and nothing else. That is
+what VS Code’s own Markdown preview does, and it matters here because this file
+references <code>../images/</code>, one level <em>above</em> the folder it sits in. Opened as a
+bare file there is no workspace folder to cover that, so those images are
+refused and every one of them is a broken box. F5 opens an empty window, so
+either open this folder in it first (File → Open Folder), or launch the host
+with the folder directly:</p>
+<pre><code>code --extensionDevelopmentPath=&lt;repo&gt; &lt;repo&gt;
+</code></pre>
+<p>Changing folders does not retarget an already-open panel — its roots were fixed
+when it was created — so reopen the preview afterwards.</p>
+<pre><code>node scripts/render-check.js
+node scripts/graph-check.js
+</code></pre>
+<!-- Raw HTML renders, so this comment reaches the preview as a real comment and
+     the browser hides it — the same thing that happens to it on GitHub. It
+     doubles as a regression check: if comments are ever escaped back into
+     visible text, the check scripts will see the angle brackets and fail. Its
+     line breaks are load-bearing too. The renderer reports the source line of
+     every checkbox it emits, and those numbers are positions in this file, so
+     anything that shortens the source shifts them onto the wrong lines. -->
+
+
+<div class="section" data-id="sec-body-h2-section-heading">
+  <h2 class="section-head" id="h2-section-heading" data-target="body-h2-section-heading">
+    <span class="chev">▾</span><span>H2: Section Heading</span>
+  </h2>
+  <div class="section-body" id="body-h2-section-heading">
+    
+    
+<div class="section" data-id="sec-body-h3-sub-section-heading">
+  <h3 class="section-head" id="h3-sub-section-heading" data-target="body-h3-sub-section-heading">
+    <span class="chev">▾</span><span>H3: Sub-section Heading</span>
+  </h3>
+  <div class="section-body" id="body-h3-sub-section-heading">
+    
+    
+<div class="section" data-id="sec-body-h4-sub-sub-section-heading">
+  <h4 class="section-head" id="h4-sub-sub-section-heading" data-target="body-h4-sub-sub-section-heading">
+    <span class="chev">▾</span><span>H4: Sub-sub-section Heading</span>
+  </h4>
+  <div class="section-body" id="body-h4-sub-sub-section-heading">
+    
+    
+<div class="section" data-id="sec-body-h5-deep-heading">
+  <h5 class="section-head" id="h5-deep-heading" data-target="body-h5-deep-heading">
+    <span class="chev">▾</span><span>H5: Deep Heading</span>
+  </h5>
+  <div class="section-body" id="body-h5-deep-heading">
+    
+    
+<div class="section" data-id="sec-body-h6-deepest-heading">
+  <h6 class="section-head" id="h6-deepest-heading" data-target="body-h6-deepest-heading">
+    <span class="chev">▾</span><span>H6: Deepest Heading</span>
+  </h6>
+  <div class="section-body" id="body-h6-deepest-heading">
+    <p>Six levels, each nested under the one above. The outline’s <strong>Content</strong> tab draws
+exactly this shape as a graph — the chain above should come out as one limb four
+levels deep, not a flat list.</p>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+  </div>
+</div>
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-text-formatting">
+  <h2 class="section-head" id="text-formatting" data-target="body-text-formatting">
+    <span class="chev">▾</span><span>Text Formatting</span>
+  </h2>
+  <div class="section-body" id="body-text-formatting">
+    <p>Basic inline typography: <strong>bold</strong>, <em>italic</em>, <strong><em>bold italic</em></strong>, and
+<s>strikethrough</s>.</p>
+<p>The extended syntax: water is H<sub>2</sub>O and E = mc<sup>2</sup>. You can <ins>underline things</ins>,
+<mark>mark them like a highlighter</mark>, and combine them — <mark><strong>marked and bold</strong></mark> or a
+subscript inside a word like log<sub>2</sub>n. Strikethrough nests as well:
+<s><strong>bold</strong> and <code>code</code> inside a strikethrough</s>.</p>
+<p>The typographer is on by default (<code>graphiteMd.typographer</code> turns it off). The
+line below is written with the characters a keyboard has and must render with
+the ones type wants — curly quotes, an en dash, an em dash, an ellipsis, and the
+symbols:</p>
+<p>“Double quotes”, ‘single quotes’, it’s a contraction, an – en dash, an — em dash,
+an ellipsis… and © ® ™ ± all in one line.</p>
+<p>It is one long line rather than a wrapped one on purpose: a phrase split across
+two lines of the source comes back with a newline inside it, so <code>an --- em dash</code>
+broken after the dashes would no longer be the phrase this is checking.</p>
+<p>HTML entities are resolved rather than shown, which is the one way a document
+can name a character it cannot type: © &amp; — &lt;not a tag&gt;.</p>
+<p>Reference-style and bare links both work: <a href="https://example.com">an inline link</a>,
+<a href="https://example.com" title="Reference-style links carry a title too">the same target written as a reference</a>, a titled
+<a href="https://example.com" title="The title rides on the link, whichever
+spelling wrote it">external link</a>, an autolink <a href="https://example.com">https://example.com</a>, an address in angle
+brackets <a href="https://example.com">https://example.com</a>, and <code>inline code</code> mid-sentence.</p>
+<p>Unicode and symbols survive intact: — … → ✓ ✗ ⚠ ①②③ ∮ ∑ ∫ ° ± ≠ ≤ ≥.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-quotes-and-callouts">
+  <h2 class="section-head" id="quotes-and-callouts" data-target="body-quotes-and-callouts">
+    <span class="chev">▾</span><span>Quotes and Callouts</span>
+  </h2>
+  <div class="section-body" id="body-quotes-and-callouts">
+    <p>A plain blockquote gets the halftone callout treatment:</p>
+<blockquote class="callout"><p>Percentages resolve against the parent’s content box, not the viewport.</p>
+</blockquote>
+<p>Nested quotes stay inside their parent’s box — the halftone field behind each
+level must not bleed upward and wash out the text above it:</p>
+<blockquote class="callout"><p>This is the outer quote.</p>
+<blockquote class="callout"><p>This is a nested sub-quote. Its text must stay fully legible, and the dot
+gradient behind the outer quote must not clip it.</p>
+<blockquote class="callout"><p>And a third level, for good measure.</p>
+</blockquote>
+</blockquote>
+<p>Back to the outer level.</p>
+</blockquote>
+<p>Blockquotes can hold other elements. Headings inside a quote are <strong>not</strong> hoisted
+into the document outline — the heading below belongs to this section, not to the
+page structure:</p>
+<blockquote class="callout"><h3>Markdown Inside Quotes</h3>
+<p>This heading should not appear in the outline pane at all. If it does, the
+<code>t.level === 0</code> guard in <code>src/markdown.ts</code> has regressed.</p>
+<ul>
+<li>A bullet inside a quote</li>
+<li>Another one, with <code>code</code></li>
+</ul>
+<blockquote class="callout"><p>Deeper still.</p>
+</blockquote>
+</blockquote>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-lists">
+  <h2 class="section-head" id="lists" data-target="body-lists">
+    <span class="chev">▾</span><span>Lists</span>
+  </h2>
+  <div class="section-body" id="body-lists">
+    <p>Unordered, nested three deep with mixed markers:</p>
+<ul>
+<li>First item
+<ul>
+<li>Nested item
+<ul>
+<li>Deeply nested item</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Second item</li>
+</ul>
+<ul>
+<li>Asterisk marker</li>
+</ul>
+<ul>
+<li>Plus marker</li>
+</ul>
+<p>Ordered, with a nested ordered list:</p>
+<ol>
+<li>First step</li>
+<li>Second step
+<ol>
+<li>Sub-step one</li>
+<li>Sub-step two</li>
+</ol>
+</li>
+<li>Third step</li>
+</ol>
+<p>A list item holding a fenced block and a quote:</p>
+<ul>
+<li>
+<p>An item with a code block:</p>
+<pre class="hljs"><code><span class="hljs-keyword">const</span> nested = <span class="hljs-literal">true</span>;
+</code></pre>
+</li>
+<li>
+<p>An item with a quote:</p>
+<blockquote class="callout"><p>Quoted inside a list item.</p>
+</blockquote>
+</li>
+</ul>
+
+    
+<div class="section" data-id="sec-body-checklists">
+  <h3 class="section-head" id="checklists" data-target="body-checklists">
+    <span class="chev">▾</span><span>Checklists</span>
+  </h3>
+  <div class="section-body" id="body-checklists">
+    <ul>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="163"></span>A completed task</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="164"></span>An open task</li>
+<li class="task-list-item"><span class="task-checkbox" data-line="165"></span>A task with <strong>emphasis</strong> and <code>code</code></li>
+</ul>
+<p>Checking a box in the preview edits the <code>[ ]</code> / <code>[x]</code> in the source file
+directly. Note that a checklist <em>inside</em> a blockquote renders fine but its
+checkboxes are inert — <code>toggleTaskAt()</code> in <code>src/extension.ts</code> matches the line
+against <code>^(\s*[-*+]\s+)\[</code>, which a <code>&gt; - [ ]</code> line does not satisfy:</p>
+<blockquote class="callout"><ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="172"></span>A checkbox inside a quote (renders, but clicking does nothing)</li>
+</ul>
+</blockquote>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-code">
+  <h2 class="section-head" id="code" data-target="body-code">
+    <span class="chev">▾</span><span>Code</span>
+  </h2>
+  <div class="section-body" id="body-code">
+    <p>A fenced JavaScript block, highlighted:</p>
+<pre class="hljs"><code><span class="hljs-keyword">import</span> { createRoot } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react-dom/client&#x27;</span>;
+
+<span class="hljs-comment">// Main entry point</span>
+<span class="hljs-keyword">const</span> rootElement = <span class="hljs-variable language_">document</span>.<span class="hljs-title function_">getElementById</span>(<span class="hljs-string">&#x27;root&#x27;</span>);
+<span class="hljs-keyword">if</span> (rootElement) {
+  <span class="hljs-title function_">createRoot</span>(rootElement).<span class="hljs-title function_">render</span>(<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">App</span> /&gt;</span></span>);
+}
+</code></pre>
+<p>A fenced block with no language — this must fall back to plain monospace with no
+highlighting spans at all:</p>
+<pre class="hljs"><code>$ npm install
+[INFO] Fetching manifests...
+[SUCCESS] Installed 14 packages in 2.34s
+</code></pre>
+<p>Python, to check a second grammar:</p>
+<pre class="hljs"><code><span class="hljs-keyword">def</span> <span class="hljs-title function_">fib</span>(<span class="hljs-params">n: <span class="hljs-built_in">int</span></span>) -&gt; <span class="hljs-built_in">int</span>:
+    <span class="hljs-string">&quot;&quot;&quot;Return the n-th Fibonacci number.&quot;&quot;&quot;</span>
+    a, b = <span class="hljs-number">0</span>, <span class="hljs-number">1</span>
+    <span class="hljs-keyword">for</span> _ <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n):
+        a, b = b, a + b
+    <span class="hljs-keyword">return</span> a
+
+<span class="hljs-built_in">print</span>(<span class="hljs-string">f&quot;fib(10) = <span class="hljs-subst">{fib(<span class="hljs-number">10</span>)}</span>&quot;</span>)
+</code></pre>
+<p>An unknown language must degrade to plain text rather than throwing:</p>
+<pre><code class="language-notalanguage">this block names a language highlight.js has never heard of
+  &lt;angle brackets&gt; &amp; ampersands are escaped, not interpreted
+</code></pre>
+<p>Indented (four-space) code blocks are not fenced, so they get no highlighting:</p>
+<pre><code>tell application &quot;Foo&quot;
+    beep
+end tell
+</code></pre>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-math">
+  <h2 class="section-head" id="math" data-target="body-math">
+    <span class="chev">▾</span><span>Math</span>
+  </h2>
+  <div class="section-body" id="body-math">
+    <p>Inline math sits in a line of text: the Pythagorean theorem is <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>a</mi><mn>2</mn></msup><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup><mo>=</mo><msup><mi>c</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">a^2 + b^2 = c^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8974em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal">a</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal">c</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></eq>,
+and the Gaussian density carries a <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>σ</mi><msqrt><mrow><mn>2</mn><mi>π</mi></mrow></msqrt></mrow><annotation encoding="application/x-tex">\sigma\sqrt{2\pi}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.04em;vertical-align:-0.1328em;"></span><span class="mord mathnormal" style="margin-right:0.0359em;">σ</span><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.9072em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord" style="padding-left:0.833em;"><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.0359em;">π</span></span></span><span style="top:-2.8672em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1328em;"><span></span></span></span></span></span></span></span></span></eq> term.</p>
+<p>Display math stands alone, centred, on its own card:</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover><mi>i</mi><mo>=</mo><mfrac><mrow><mi>n</mi><mo stretchy="false">(</mo><mi>n</mi><mo>+</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mn>2</mn></mfrac></mrow><annotation encoding="application/x-tex">\sum_{i=1}^{n} i = \frac{n(n+1)}{2}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.9291em;vertical-align:-1.2777em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.6514em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mrel mtight">=</span><span class="mord mtight">1</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">n</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.2777em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">i</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.113em;vertical-align:-0.686em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.427em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord">2</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">n</span><span class="mopen">(</span><span class="mord mathnormal">n</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord">1</span><span class="mclose">)</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></eqn></section><section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>f</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><msubsup><mo>∫</mo><mrow><mo>−</mo><mi mathvariant="normal">∞</mi></mrow><mi mathvariant="normal">∞</mi></msubsup><msup><mi>e</mi><mrow><mo>−</mo><msup><mi>x</mi><mn>2</mn></msup></mrow></msup><mtext> </mtext><mi>d</mi><mi>x</mi></mrow><annotation encoding="application/x-tex">f(x) = \int_{-\infty}^{\infty} e^{-x^2}\,dx</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.1076em;">f</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.3846em;vertical-align:-0.9703em;"></span><span class="mop"><span class="mop op-symbol large-op" style="margin-right:0.4445em;position:relative;top:-0.0011em;">∫</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.4143em;"><span style="top:-1.7881em;margin-left:-0.4445em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight">∞</span></span></span></span><span style="top:-3.8129em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">∞</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.9703em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:1.0369em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">−</span><span class="mord mtight"><span class="mord mathnormal mtight">x</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-2.931em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal">x</span></span></span></span></span></eqn></section><p><code>$…$</code> is inline and <code>$$…$$</code> is display; LaTeX’s own <code>\(…\)</code> and <code>\[…\]</code> are not
+delimiters here, so this line keeps its parentheses as text:</p>
+<p>Inline (x^2) and display [y^2], but <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>z</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">z^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.044em;">z</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></eq> is maths.</p>
+<p>A price is not a formula opener. Two dollars in a row is the case the pairing
+rule exists for, and an earlier renderer paired the wrong two: in the line below
+it opened a formula at <code>$5</code> and closed it at the <code>$</code> that opens <code>$x^2$</code>, so the
+sentence became a red error box and the real formula never rendered at all.</p>
+<p>It costs $5, and the other one costs $10, unlike <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>+</mo><mi>y</mi></mrow><annotation encoding="application/x-tex">x + y</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.0359em;">y</span></span></span></span></eq> which is maths. An
+escaped dollar is a dollar and nothing more: $5 and $10, while <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi></mrow><annotation encoding="application/x-tex">x</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">x</span></span></span></span></eq> is maths.</p>
+<p>A <code>$$</code> formula that starts a line does not have to own the whole line. Anything
+written after the closing <code>$$</code> has to survive, and so does the text between two
+formulas on one line:</p>
+<p><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>x</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8641em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></eqn> is the area, and <eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>y</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">y^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1.0585em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.0359em;">y</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></eqn> is the other one — both on one line.</p>
+<p>A <code>$$</code> formula alone on its line is a block instead, and a block spans the whole
+column rather than sitting in a paragraph:</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>a</mi><mn>2</mn></msup><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup><mo>=</mo><msup><mi>c</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">a^2 + b^2 = c^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9474em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal">a</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8641em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8641em;"></span><span class="mord"><span class="mord mathnormal">c</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></eqn></section><p>And a <code>$$</code> formula written <em>inside</em> a sentence stays in its sentence — the words
+on both sides, in the one paragraph the sentence was written as:</p>
+<p>The area <eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>x</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8641em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></eqn> is large.</p>
+<p>Display math may run over several lines, and may sit inside a quote or a list
+item, where it still spans the column it was given rather than escaping its
+container:</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msubsup><mo>∫</mo><mn>0</mn><mn>1</mn></msubsup><mi>x</mi><mtext> </mtext><mi>d</mi><mi>x</mi><mo>=</mo><mfrac><mn>1</mn><mn>2</mn></mfrac></mrow><annotation encoding="application/x-tex">
+\int_0^1 x\,dx = \frac{1}{2}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.476em;vertical-align:-0.9119em;"></span><span class="mop"><span class="mop op-symbol large-op" style="margin-right:0.4445em;position:relative;top:-0.0011em;">∫</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.564em;"><span style="top:-1.7881em;margin-left:-0.4445em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span><span style="top:-3.8129em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.9119em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.0074em;vertical-align:-0.686em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.3214em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord">2</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></eqn></section><blockquote class="callout"><section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover><mi>i</mi></mrow><annotation encoding="application/x-tex"> \sum_{i=1}^{n} i </annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.9291em;vertical-align:-1.2777em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.6514em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mrel mtight">=</span><span class="mord mtight">1</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">n</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.2777em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">i</span></span></span></span></span></eqn></section><p>A display formula inside a quote.</p>
+</blockquote>
+<ul>
+<li>
+<p>A list item holding a display formula:</p>
+<section><eqn><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>e</mi><mrow><mi>i</mi><mi>π</mi></mrow></msup><mo>+</mo><mn>1</mn><mo>=</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">
+  e^{i\pi} + 1 = 0
+  </annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.958em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8747em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.0359em;">iπ</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span></span></eqn></section></li>
+</ul>
+<p>Bad LaTeX must render in red rather than taking down the render (texmath is
+configured with <code>throwOnError: false</code>): <eq><span class="katex-error" title="ParseError: KaTeX parse error: Unexpected end of input in a macro argument, expected &#x27;}&#x27; at end of input: \frac{1}{" style="color:#cc0000">\frac{1}{</span></eq> is malformed.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-links-images-and-footnotes">
+  <h2 class="section-head" id="links-images-and-footnotes" data-target="body-links-images-and-footnotes">
+    <span class="chev">▾</span><span>Links, Images and Footnotes</span>
+  </h2>
+  <div class="section-body" id="body-links-images-and-footnotes">
+    <ul>
+<li>An <a href="https://github.com">external link</a>.</li>
+<li>An <a href="#tables">anchor link</a> that should soft-scroll to the Tables section.</li>
+<li>A bare address, <a href="mailto:someone@example.com">someone@example.com</a>, still linkifies — an email is not
+ambiguous about what it is.</li>
+<li>A bare word that only looks like a domain does <strong>not</strong> linkify. Fuzzy matching
+is off here on purpose: <code>.md</code>, <code>.sh</code>, <code>.rs</code>, <code>.so</code>, <code>.pl</code> and <code>.cc</code> are all
+country-code TLDs, so a document that merely mentioned README.md, setup.sh or
+main.rs rendered links to real websites owned by strangers. All of those, and
+www.example.com with them, must stay plain text on this page.</li>
+<li>An <img src="../images/overview.png" alt="image stored beside the document" title="Relative to this file, not to the preview"> — this one must load.</li>
+<li>A <img src="https://placehold.co/120x40" alt="an image on the network" title="Remote"> — this one must <strong>not</strong> load, which is the point: remote images are off unless you turn on <code>graphiteMd.remoteImages</code>. An empty box here is correct.</li>
+</ul>
+<p>Footnotes collect into a numbered list at the foot of the preview. Clicking a
+reference jumps to its note; the ↩︎ beside the note comes back to where you were
+reading. Multiple references to the same note share one entry.</p>
+<p>Here is a claim that needs a source,<sup class="footnote-ref"><a href="#fn1" id="fnref1">[1]</a></sup> and a second one that needs a different
+source.<sup class="footnote-ref"><a href="#fn2" id="fnref2">[2]</a></sup> Here is the first note cited again<sup class="footnote-ref"><a href="#fn1" id="fnref1:1">[1:1]</a></sup> to check that the back-reference
+list grows rather than the note being duplicated,<sup class="footnote-ref"><a href="#fn3" id="fnref3">[3]</a></sup> and here is a note with
+<strong>formatting</strong> and <code>code</code> inside it.<sup class="footnote-ref"><a href="#fn4" id="fnref4">[4]</a></sup></p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-tables">
+  <h2 class="section-head" id="tables" data-target="body-tables">
+    <span class="chev">▾</span><span>Tables</span>
+  </h2>
+  <div class="section-body" id="body-tables">
+    <p>A table with every column alignment — left, centre, right, and default:</p>
+<table id="table-1" class="md-table"><thead>
+<tr>
+<th style="text-align:left">ID</th>
+<th style="text-align:left">Component</th>
+<th style="text-align:center">Status</th>
+<th style="text-align:right">Render Time</th>
+<th style="text-align:left">Metrics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">01</td>
+<td style="text-align:left">Parser Engine</td>
+<td style="text-align:center">Operational</td>
+<td style="text-align:right">12ms</td>
+<td style="text-align:left"><code>Stable</code></td>
+</tr>
+<tr>
+<td style="text-align:left">02</td>
+<td style="text-align:left">Mermaid Renderer</td>
+<td style="text-align:center">Warning</td>
+<td style="text-align:right">245ms</td>
+<td style="text-align:left"><code>High Latency</code></td>
+</tr>
+<tr>
+<td style="text-align:left">03</td>
+<td style="text-align:left">LaTeX Compiler</td>
+<td style="text-align:center">Offline</td>
+<td style="text-align:right">–</td>
+<td style="text-align:left">❌</td>
+</tr>
+</tbody>
+</table>
+<p>A narrower table, so the Tables tab has more than one entry to list:</p>
+<table id="table-2" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Setting</th>
+<th style="text-align:center">Default</th>
+<th style="text-align:right">Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left"><code>graphiteMd.contentWidth</code></td>
+<td style="text-align:center">60</td>
+<td style="text-align:right">40–100</td>
+</tr>
+</tbody>
+</table>
+<p>Cells may contain inline syntax: <strong>bold</strong>, <code>code</code>, <mark>mark</mark>, H<sub>2</sub>O, and <eq><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>e</mi><mrow><mi>i</mi><mi>π</mi></mrow></msup></mrow><annotation encoding="application/x-tex">e^{i\pi}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8247em;"></span><span class="mord"><span class="mord mathnormal">e</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8247em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.0359em;">iπ</span></span></span></span></span></span></span></span></span></span></span></span></eq>.</p>
+<p>A cell may be empty too, and an empty cell is not a missing one — the row keeps
+its shape and the borders still line up:</p>
+<table id="table-3" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Filled</th>
+<th style="text-align:center">Empty</th>
+<th style="text-align:right">Also empty</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">a value</td>
+<td style="text-align:center"></td>
+<td style="text-align:right"></td>
+</tr>
+<tr>
+<td style="text-align:left"></td>
+<td style="text-align:center">a value</td>
+<td style="text-align:right"></td>
+</tr>
+</tbody>
+</table>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-diagrams">
+  <h2 class="section-head" id="diagrams" data-target="body-diagrams">
+    <span class="chev">▾</span><span>Diagrams</span>
+  </h2>
+  <div class="section-body" id="body-diagrams">
+    <p>A flowchart, left to right:</p>
+<div class="mermaid" id="diagram-1">graph LR
+    A[Raw Markdown String] --&gt; B(Parser Lexer)
+    B --&gt; C{Has Mermaid Syntax?}
+    C -- Yes --&gt; D[Inject Mermaid Canvas]
+    C -- No --&gt; E[Render Standard HTML]
+    D --&gt; F((Final Layout))
+    E --&gt; F
+</div><p>A sequence diagram:</p>
+<div class="mermaid" id="diagram-2">sequenceDiagram
+    autonumber
+    Client-&gt;&gt;API Gateway: GET /v1/render/payload
+    activate API Gateway
+    API Gateway-&gt;&gt;Parser Service: Parse AST Tree
+    Parser Service--&gt;&gt;API Gateway: Validated AST JSON
+    deactivate API Gateway
+    API Gateway--&gt;&gt;Client: HTTP 200 (HTML String)
+</div><p>A third, because a diagram’s source is escaped before it reaches the page: <code>&lt;</code>,
+<code>&gt;</code> and <code>&amp;</code> in a label have to arrive as <code>&amp;lt;</code>, <code>&amp;gt;</code> and <code>&amp;amp;</code>, or the
+browser reads them as markup and the diagram does not draw at all:</p>
+<div class="mermaid" id="diagram-3">graph TD
+    A["Latency &lt; 5ms &amp; stable"] --&gt; B{{Within budget?}}
+    B -- Yes --&gt; C[Ship it]
+    B -- No --&gt; D[Profile again]
+</div>
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-raw-html">
+  <h2 class="section-head" id="raw-html" data-target="body-raw-html">
+    <span class="chev">▾</span><span>Raw HTML</span>
+  </h2>
+  <div class="section-body" id="body-raw-html">
+    <p>Everything in this section is HTML rather than Markdown. It renders exactly as
+it is written, the way it does in VS Code’s own preview and on GitHub, and the
+elements below are styled by <code>media/preview.css</code> so none of them falls back to
+a browser default drawn for a light page.</p>
+<p>Inline: <mark>highlighted</mark>, <kbd>Ctrl</kbd>+<kbd>K</kbd>, <abbr title="Application Programming Interface">API</abbr>, <ins>inserted</ins>, H<sub>2</sub>O and mc<sup>2</sup>.</p>
+<p>A definition list:</p>
+<dl>
+  <dt>Rendering</dt>
+  <dd>Turning the document's source into the HTML the preview shows.</dd>
+  <dt>Outline</dt>
+  <dd>The "On this page" pane — Content, Tables and Diagrams.</dd>
+</dl>
+<p>A collapsed disclosure:</p>
+<details>
+<summary>What happens to a &lt;script&gt; tag?</summary>
+It reaches the page as a real element and never runs. The page's Content
+Security Policy allows scripts only from a nonce it generated itself, so an
+inline script and an <code>onclick=</code> attribute are both refused. See the
+CSP in <code>src/webviewHtml.ts</code>.
+</details>
+<p>A figure, and a rule:</p>
+<figure>
+  <img src="../images/overview.png" alt="Relative to this file">
+  <figcaption>A relative image written in raw HTML resolves like a Markdown one.</figcaption>
+</figure>
+<p>Four elements carry a <code>src</code> the host resolves — <code>&lt;img&gt;</code>, <code>&lt;video&gt;</code>, <code>&lt;audio&gt;</code>
+and <code>&lt;source&gt;</code> — and the two below are here for the middle pair. The source is a
+picture, so neither will play anything, and that is not the point: the point is
+that a relative <code>src</code> written in raw HTML goes to the host’s resolver by the
+same route a Markdown image’s does, whatever element is carrying it.</p>
+<p><video src="../images/overview.png" controls></video></p>
+<p><audio src="../images/overview.png" controls></audio></p>
+<hr>
+<p>A table written by hand. It renders with the same borders and padding as a
+Markdown table, and it takes its place in the Tables tab beside them: every
+table is given an id after rendering, in document order, whichever syntax wrote
+it.</p>
+<table id="table-4">
+  <thead>
+    <tr><th>Stage</th><th>Cost</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Markdown parse</td><td>5.5 ms</td></tr>
+    <tr><td>Webview reload</td><td>99 ms</td></tr>
+  </tbody>
+</table>
+
+    
+<div class="section" data-id="sec-body-raw-html-that-must-not-do-anything">
+  <h3 class="section-head" id="raw-html-that-must-not-do-anything" data-target="body-raw-html-that-must-not-do-anything">
+    <span class="chev">▾</span><span>Raw HTML that must not do anything</span>
+  </h3>
+  <div class="section-body" id="body-raw-html-that-must-not-do-anything">
+    <p>These are here to be looked at, not used. Every one of them is inert in the
+preview: the first three because the CSP refuses them, the last because the
+panel is created with <code>enableForms: false</code>.</p>
+<p onclick="alert('inline handler')">A paragraph with an onclick handler.</p>
+<iframe src="https://example.com" width="200" height="60"></iframe>
+<script>document.body.textContent = 'a script that must never run';</script>
+<form action="https://example.com/submit">
+  <input type="text" value="a form that must never submit">
+  <button type="submit">Submit</button>
+</form>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-mixed-html-and-markdown">
+  <h2 class="section-head" id="mixed-html-and-markdown" data-target="body-mixed-html-and-markdown">
+    <span class="chev">▾</span><span>Mixed HTML and Markdown</span>
+  </h2>
+  <div class="section-body" id="body-mixed-html-and-markdown">
+    <p>The two syntaxes in one document, which is how a README is actually written.
+Inline HTML is transparent — a tag in the middle of a sentence is just a tag,
+and the Markdown around it is unaffected. Blocks are the surprising half, so
+most of this section is about them.</p>
+<p>Inline: a <mark>highlighted</mark> word, a <kbd>Ctrl</kbd> chord and an
+<abbr title="Too Long; Did Not Read">TL;DR</abbr> all sit inside this sentence,
+and <strong>bold after a tag</strong> still renders, as does <code>code</code> and a <a href="https://example.com">link</a>.</p>
+
+    
+<div class="section" data-id="sec-body-a-block-is-raw-until-a-blank-line-ends-it">
+  <h3 class="section-head" id="a-block-is-raw-until-a-blank-line-ends-it" data-target="body-a-block-is-raw-until-a-blank-line-ends-it">
+    <span class="chev">▾</span><span>A block is raw until a blank line ends it</span>
+  </h3>
+  <div class="section-body" id="body-a-block-is-raw-until-a-blank-line-ends-it">
+    <p>Nothing inside this block is Markdown, because no blank line separates it from
+the tag that opened it:</p>
+<div class="callout">
+**not bold**, *not italic*, and the two lines below are not a list:
+- one
+- two
+</div>
+<p>The same block, with a blank line after the opening tag and another before the
+close, does render what is inside it. That is the form to reach for:</p>
+<div class="callout">
+<p><strong>Bold</strong>, <em>italic</em>, and those same two lines, now a real list:</p>
+<ul>
+<li>one</li>
+<li>two</li>
+</ul>
+</div>
+<p>That class is the one a <code>&gt;</code> blockquote produces, so a hand-written
+<code>&lt;div class=&quot;callout&quot;&gt;</code> draws the same halftone card. The styling keys off the
+class, not off which syntax wrote it.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-the-same-blank-line-is-what-keeps-a-heading-out-of-the-block">
+  <h3 class="section-head" id="the-same-blank-line-is-what-keeps-a-heading-out-of-the-block" data-target="body-the-same-blank-line-is-what-keeps-a-heading-out-of-the-block">
+    <span class="chev">▾</span><span>The same blank line is what keeps a heading out of the block</span>
+  </h3>
+  <div class="section-body" id="body-the-same-blank-line-is-what-keeps-a-heading-out-of-the-block">
+    <p>Two <code>####</code> headings follow, and only the second one reaches the outline. The
+first has no blank line above it, so the <code>&lt;/div&gt;</code> before it swallowed the line
+into its raw block and it is text on the page rather than a section. Open the
+outline pane beside this and count them.</p>
+<div class="callout">Raw block content, ending on this line.</div>
+#### Swallowed: no blank line above, so this is text rather than a heading
+
+    
+<div class="section" data-id="sec-body-kept-one-blank-line-above-so-this-is-a-real-section">
+  <h4 class="section-head" id="kept-one-blank-line-above-so-this-is-a-real-section" data-target="body-kept-one-blank-line-above-so-this-is-a-real-section">
+    <span class="chev">▾</span><span>Kept: one blank line above, so this is a real section</span>
+  </h4>
+  <div class="section-body" id="body-kept-one-blank-line-above-so-this-is-a-real-section">
+    
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-markdown-inside-a-raw-table-cell-is-raw-too">
+  <h3 class="section-head" id="markdown-inside-a-raw-table-cell-is-raw-too" data-target="body-markdown-inside-a-raw-table-cell-is-raw-too">
+    <span class="chev">▾</span><span>Markdown inside a raw table cell is raw too</span>
+  </h3>
+  <div class="section-body" id="body-markdown-inside-a-raw-table-cell-is-raw-too">
+    <p>A <code>&lt;table&gt;</code> written by hand is raw throughout, cells included, so the asterisks
+below are shown rather than applied:</p>
+<table id="table-5">
+  <thead>
+    <tr><th>Written as</th><th>Shown as</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>**bold**</td><td>**bold** — the asterisks are literal</td></tr>
+  </tbody>
+</table>
+<p>A Markdown table beside it, for contrast. Its cells do render inline syntax.
+Both are in the Tables tab, and they are listed in the order they appear here
+rather than the order they were rendered:</p>
+<table id="table-6" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Written as</th>
+<th style="text-align:left">Shown as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left"><code>**bold**</code></td>
+<td style="text-align:left"><strong>bold</strong></td>
+</tr>
+</tbody>
+</table>
+<p>A table named by hand. Its <code>id</code> is the document’s rather than one the renderer
+invents, so the outline targets <code>#totals</code> — which is what keeps a link someone
+wrote, like <a href="#totals">the totals</a>, pointing at this table:</p>
+<table id="totals">
+  <thead>
+    <tr><th>Named by</th><th>Outline target</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>this document</td><td><code>totals</code></td></tr>
+  </tbody>
+</table>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-headings-and-anchors">
+  <h2 class="section-head" id="headings-and-anchors" data-target="body-headings-and-anchors">
+    <span class="chev">▾</span><span>Headings and Anchors</span>
+  </h2>
+  <div class="section-body" id="body-headings-and-anchors">
+    <p>Every heading becomes a section in the outline and an anchor on the page. The id
+is the heading’s own text, lower-cased, with punctuation dropped and spaces
+turned into hyphens. Letters and numbers of any script survive, so a heading
+written in a non-Latin script still has an anchor a hand-written link can name —
+<a href="#caf%C3%A9-%E6%97%A5%E6%9C%AC%E8%AA%9E-%C3%BCn%C3%AFc%C3%B6d%C3%A9-na%C3%AFve">this one</a>, for instance:</p>
+
+    
+<div class="section" data-id="sec-body-café-日本語-ünïcödé-naïve">
+  <h3 class="section-head" id="café-日本語-ünïcödé-naïve" data-target="body-café-日本語-ünïcödé-naïve">
+    <span class="chev">▾</span><span>Café ☕ 日本語 — Ünïcödé Naïve</span>
+  </h3>
+  <div class="section-body" id="body-café-日本語-ünïcödé-naïve">
+    <p>A heading whose text is nothing but punctuation has no anchor of its own, so it
+falls back to <code>section</code> rather than to an empty id that nothing can link to:</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-section">
+  <h3 class="section-head" id="section" data-target="body-section">
+    <span class="chev">▾</span><span>!!!</span>
+  </h3>
+  <div class="section-body" id="body-section">
+    <p>Two headings with the same text are two elements, and one id shared between them
+would send every link to the first. The second and the third get numbered
+suffixes, and the outline lists all three:</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-repeated-heading">
+  <h3 class="section-head" id="repeated-heading" data-target="body-repeated-heading">
+    <span class="chev">▾</span><span>Repeated Heading</span>
+  </h3>
+  <div class="section-body" id="body-repeated-heading">
+    
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-repeated-heading-1">
+  <h3 class="section-head" id="repeated-heading-1" data-target="body-repeated-heading-1">
+    <span class="chev">▾</span><span>Repeated Heading</span>
+  </h3>
+  <div class="section-body" id="body-repeated-heading-1">
+    
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-repeated-heading-2">
+  <h3 class="section-head" id="repeated-heading-2" data-target="body-repeated-heading-2">
+    <span class="chev">▾</span><span>Repeated Heading</span>
+  </h3>
+  <div class="section-body" id="body-repeated-heading-2">
+    <p>Inline syntax in a heading renders in the outline as it does in the body: the
+outline’s label is the heading’s text, and the heading on the page carries the
+markup.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-a-heading-with-bold-and-code-in-it">
+  <h3 class="section-head" id="a-heading-with-bold-and-code-in-it" data-target="body-a-heading-with-bold-and-code-in-it">
+    <span class="chev">▾</span><span>A heading with <strong>bold</strong> and <code>code</code> in it</span>
+  </h3>
+  <div class="section-body" id="body-a-heading-with-bold-and-code-in-it">
+    <p>A heading may close with hashes, which are decoration rather than text. They are
+stripped from the label the outline shows and from the anchor it targets:</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-trailing-hashes-are-stripped">
+  <h3 class="section-head" id="trailing-hashes-are-stripped" data-target="body-trailing-hashes-are-stripped">
+    <span class="chev">▾</span><span>Trailing hashes are stripped</span>
+  </h3>
+  <div class="section-body" id="body-trailing-hashes-are-stripped">
+    <p>A heading can also be written with an underline instead of a <code>#</code> — a <em>setext</em>
+heading, which is the older spelling of the same thing. A line of dashes makes
+it a level-2 heading, which in turn makes it a sibling of this section rather
+than a child of it, and that is where the outline puts it.</p>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-setext-underline-heading">
+  <h2 class="section-head" id="setext-underline-heading" data-target="body-setext-underline-heading">
+    <span class="chev">▾</span><span>Setext Underline Heading</span>
+  </h2>
+  <div class="section-body" id="body-setext-underline-heading">
+    
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-edge-cases">
+  <h2 class="section-head" id="edge-cases" data-target="body-edge-cases">
+    <span class="chev">▾</span><span>Edge Cases</span>
+  </h2>
+  <div class="section-body" id="body-edge-cases">
+    <p>Deliberately awkward input that has broken the renderer before:</p>
+<ul>
+<li>A paragraph with a hard line break at the end of this line<br>
+and the text continuing after it. A backslash at the end of a line is the
+other spelling of the same break:<br>
+this text is on the next line of the same paragraph.</li>
+<li>A very long unbroken token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</li>
+<li>Characters that are HTML and are treated as such: <div> &amp; </div> and <script>alert(1)</script> — the script element reaches the page and the page’s policy refuses to run it. See “Raw HTML” above.</li>
+<li>Backslash escapes: *not italic*, `not code`, _not italic_</li>
+<li>A table cell containing a pipe: | is escaped as | and must not split the row.</li>
+<li>Trailing hashes, which the renderer strips. That heading is in “Headings and
+Anchors” above rather than in this list, because a <code>###</code> written mid-line in a
+list item is only ever text.</li>
+</ul>
+<p>Both spellings of a thematic break, <code>***</code> and <code>___</code>, must come out as the same
+<code>&lt;hr&gt;</code> the <code>---</code> further up produced:</p>
+<hr>
+<p>And the underscore spelling of the same break:</p>
+<hr>
+<p>A list may start at a number other than one, and it keeps it. A list with blank
+lines between its items is a <em>loose</em> list — each item’s content is wrapped in a
+paragraph, which is a different shape from the tight lists above:</p>
+<ol start="3">
+<li>Third</li>
+<li>Fourth</li>
+</ol>
+<ul>
+<li>
+<p>An item with a blank line after it</p>
+</li>
+<li>
+<p>And another, so this list is loose</p>
+</li>
+</ul>
+<p>An item can be empty, and an empty item is still an item:</p>
+<ul>
+<li></li>
+</ul>
+<p>The checkbox marker only counts when something follows it. <code>- [ ]</code> with a task
+after it is a real checkbox; <code>- [ ]</code> with nothing after it is a list item whose
+text is the brackets themselves:</p>
+<ul>
+<li class="task-list-item"><span class="task-checkbox" data-line="630"></span>a real checkbox, unchecked</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="631"></span>a real checkbox, checked</li>
+<li class="task-list-item"><span class="task-checkbox checked" data-line="632"></span>the capital spelling counts as checked too</li>
+<li>[ ]</li>
+</ul>
+<p>A blockquote containing only whitespace:</p>
+<blockquote class="callout"></blockquote>
+<p>The outline must survive all of the above, and every <code>&lt;/div&gt;</code> in the rendered
+HTML must still pair with an opening tag — a mismatch here is what previously
+renested the whole right-hand pane to the bottom of the document.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-a-second-top-level-heading">
+  <h1 class="section-head" id="a-second-top-level-heading" data-target="body-a-second-top-level-heading">
+    <span class="chev">▾</span><span>A Second Top-Level Heading</span>
+  </h1>
+  <div class="section-body" id="body-a-second-top-level-heading">
+    <p>A second H1 is <em>not</em> swallowed as the document title — only the first one is
+extracted. This one becomes a node in the outline’s tree, and the headings below
+it nest under it rather than standing as roots of their own.</p>
+
+    
+<div class="section" data-id="sec-body-nested-under-the-second-h1">
+  <h2 class="section-head" id="nested-under-the-second-h1" data-target="body-nested-under-the-second-h1">
+    <span class="chev">▾</span><span>Nested Under the Second H1</span>
+  </h2>
+  <div class="section-body" id="body-nested-under-the-second-h1">
+    <p>Which means the Content graph should show this section as a child of “A Second
+Top-Level Heading”, one level in, with its own sibling relationship to the next
+heading.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-a-sibling-under-the-second-h1">
+  <h2 class="section-head" id="a-sibling-under-the-second-h1" data-target="body-a-sibling-under-the-second-h1">
+    <span class="chev">▾</span><span>A Sibling Under the Second H1</span>
+  </h2>
+  <div class="section-body" id="body-a-sibling-under-the-second-h1">
+    <p>Two children of the same parent — these should share a vertical run in the graph
+rather than each curving back to the trunk.</p>
+
+    
+  </div>
+</div>
+  </div>
+</div>
+<hr class="footnotes-sep">
+<section class="footnotes">
+<ol class="footnotes-list">
+<li id="fn1" class="footnote-item"><p>This is the text contents of the footnote rendered cleanly at the bottom of the page. <a href="#fnref1" class="footnote-backref">↩︎</a> <a href="#fnref1:1" class="footnote-backref">↩︎</a></p>
+</li>
+<li id="fn2" class="footnote-item"><p>A second note, to check numbering stays sequential. <a href="#fnref2" class="footnote-backref">↩︎</a></p>
+</li>
+<li id="fn3" class="footnote-item"><p>Third. <a href="#fnref3" class="footnote-backref">↩︎</a></p>
+</li>
+<li id="fn4" class="footnote-item"><p>A note containing <strong>bold</strong>, <em>italic</em>, <code>code</code>, and a <a href="https://example.com">link</a>. <a href="#fnref4" class="footnote-backref">↩︎</a></p>
+</li>
+</ol>
+</section>

@@ -28,7 +28,35 @@ body{
 }
 
 /* ---------- Layout shell ---------- */
-.shell{ display:flex; flex: 1; min-height: 0; }
+/* `position: relative` is for the outline's control, which is a child of this
+   element rather than of the body — see .outline-toggle. It is the containing
+   block so that the control is placed against the panes, which is what it has
+   to clear, instead of against the viewport, which it does not. */
+.shell{ display:flex; flex: 1; min-height: 0; position: relative; }
+
+/* Held back by the guard in src/webviewHtml.ts, for the moment between the page
+   being written and the panel around it being laid out — during which the frame
+   is 300x150, the outline is the whole viewport and the layout underneath is
+   wrong rather than merely small.
+   Hiding the shell is not enough by itself, and that is the thing to know before
+   touching any of this: `body` paints the page's own `--bg` across the whole
+   frame whatever is inside it, so a page with its shell hidden is still a small
+   dark rectangle in the corner of the panel, growing as the panel does. The
+   booting page paints the panel's colour instead. `--vscode-editor-background`
+   is injected into every webview and is what the editor group around the frame
+   is painted with, so a frame of any size is invisible rather than merely
+   empty, and the reveal is the panel changing colour once instead of a
+   rectangle expanding. The fallback is the page's own background, which is
+   what it was everywhere the variable is absent.
+   `visibility` rather than `display`, because a page being held back still has
+   to be measurable: everything main.ts reads at load — the panes' heights, what
+   overflows, where the scrollbar's thumb goes — is 0/0 under `display: none`,
+   and the page would come back with none of it. The root stops scrolling for
+   the same window, because a page nobody can see should not offer a scrollbar,
+   and at that size it genuinely overflows. */
+html.booting{ overflow: hidden; background: var(--vscode-editor-background, var(--bg)); }
+html.booting body{ background: var(--vscode-editor-background, var(--bg)); }
+html.booting .shell{ visibility: hidden; }
 
 /* ---------- generic scroll-wrap ---------- */
 .scroll-wrap{ position: relative; min-height: 0; overflow: hidden; }
@@ -123,6 +151,34 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 .content-pane th{ background: var(--bg-sidebar); font-weight: 600; color: var(--ink); }
 .content-pane td{ color: var(--ink-soft); }
 
+/* Front matter, which src/markdown.ts draws as a table of the document's
+   metadata. The rule above styles every table in the pane, which is right for
+   the ones the writing produced and wrong for this one: a bordered grid of keys
+   with a filled header sits directly above the title and reads as the first
+   section of the document rather than as the label on the file. So it is taken
+   back out of that styling — no grid, no fill, rows separated by the faintest
+   line, the key in the muted tone — and left as what it is. */
+.content-pane table.frontmatter{ width: auto; margin: 0 0 20px 0; font-size: 13px; }
+.content-pane table.frontmatter th,
+.content-pane table.frontmatter td{
+  border: 0;
+  border-top: 1px solid var(--border);
+  padding: 5px 0;
+  vertical-align: top;
+}
+.content-pane table.frontmatter tr:first-child th,
+.content-pane table.frontmatter tr:first-child td{ border-top: 0; }
+.content-pane table.frontmatter th{
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  padding-right: 18px;
+}
+.content-pane table.frontmatter td{ color: var(--ink-soft); }
+.content-pane table.frontmatter ul{ margin: 0; padding-left: 18px; }
+.content-pane table.frontmatter code{ font-size: 12.5px; }
+
 /* math — rendered server-side by KaTeX (see src/markdown.ts), styled here.
    .katex-display is KaTeX's own class for block ($$...$$) math; plain .katex
    is what's left for inline ($...$) math, so we key directly off those
@@ -203,6 +259,37 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 
 /* ---------- Right "on this page" — accordion, one section open at most ---------- */
 .toc-pane-wrap{ width: 300px; flex-shrink: 0; border-left: 1px solid var(--border); }
+
+/* Folding the pane away, at the two speeds `graphiteMd.animation` asks for.
+   The setting arrives as `data-anim` on the body rather than as a class on the
+   pane because the page is rebuilt from a string on every render, and the body
+   is where that build already writes display settings — `--content-width`
+   rides on the same element for the same reason.
+
+   The animated fold is a width transition, which is the expensive one: the
+   reading column keeps its percentage share of a pane that is changing size, so
+   every paragraph in it re-wraps on each frame, moving the text under somebody
+   part way down it. That cost is the whole reason the speed is a setting. Two
+   things keep it from being worse than it has to be: the pane's own content is
+   pinned to its 300px, so the outline's rows do not re-flow on the way out, and
+   `overflow: hidden` is what makes the pane leave rather than slide under the
+   text beside it.
+
+   The instant fold is not the same rule with a shorter duration — it is the
+   `display: none` the pane did before there was a setting at all. Nothing is
+   left behind to lay out, and the page is told the fold happened by the same
+   code either way. */
+body[data-anim="smooth"] .toc-pane-wrap{
+  transition: width .2s cubic-bezier(.4,0,.2,1), border-left-color .2s ease;
+  overflow: hidden;
+}
+body[data-anim="smooth"] .toc-pane-wrap .toc-pane{ width: 300px; }
+/* `border-left-width` as well as the colour, because a border's width does not
+   go away with its colour: the pane would keep a one-pixel box and the reading
+   column would end a pixel short of the window for as long as the outline was
+   folded. */
+body[data-anim="smooth"] .toc-pane-wrap.collapsed{ width: 0; border-left-width: 0; border-left-color: transparent; }
+body[data-anim="instant"] .toc-pane-wrap.collapsed{ display: none; }
 .toc-pane{ padding: 22px 14px; }
 .toc-pane .pane-label{ font-size: 10.5px; color: var(--muted); font-weight: 600; margin-bottom: 12px; padding-left: 4px; }
 
@@ -253,6 +340,55 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 }
 
 .toc-empty{ padding: 6px 8px 10px; font-size: 12px; color: var(--muted); }
+
+/* The outline's own control. Outside the pane it folds — a button inside the
+   thing it hides is gone exactly when it is needed — so it sits in the
+   preview's top-right corner instead, over whatever the pane's width puts
+   under it.
+
+   It is `absolute` inside .shell rather than `fixed` inside the body, and that
+   is the whole of a bug report rather than a style preference. A VS Code
+   webview injects `body { padding: 0 20px }`, so the body and the panes do not
+   share an edge: the pane the control must clear ends 20px inside the viewport,
+   and a control positioned against the viewport by the same 20px lands on the
+   scrollbar it was supposed to sit beside. Measured in the editor before this
+   changed: the bar's lane at 823-829px, the control at 800-832px, overlapping.
+   .shell is the panes' own box, so a distance from its right edge is a distance
+   from the thing being cleared, whatever the body is padded by.
+
+   Kept clear rather than sharing the corner with the bar's lane, which at its
+   widest reaches 10px in from that edge — 3px in from the right for a 6px
+   track, whose thumb grows to 8px and steps 1px outward on hover — leaving a
+   floor of 10px between the two. Any closer and the corner reads as one control
+   drawn twice.
+
+   The arrow is a chevron rather than the text glyph the section headings use:
+   at this size a glyph's own side bearings are most of what a reader sees, and
+   the drawn path is the same weight at any zoom. It points right while the pane
+   is open and turns to point left once it is folded, and it is keyed off
+   `aria-expanded` so the drawing and the announcement cannot disagree. */
+.outline-toggle{
+  position: absolute; top: 10px; right: 20px; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: var(--muted); line-height: 1; cursor: pointer;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.outline-toggle:hover{ background: rgba(255,255,255,0.06); color: var(--ink-soft); border-color: var(--border); }
+.outline-toggle:focus-visible{ outline: 2px solid var(--accent); outline-offset: 1px; }
+.outline-toggle svg{ transition: transform .18s ease; }
+.outline-toggle[aria-expanded="false"] svg{ transform: rotate(180deg); }
+/* Scoped to these two rather than retrofitted across the page: the eased scroll
+   and the dot pulse are older animations whose own reduced-motion pass is a
+   separate change, and neither folding a panel nor drawing its arrow is worth a
+   moving glyph to anyone who has asked the system for less motion. The pane's
+   own transition is off here as well, which is what makes the animated fold
+   instant for them — and the page reads the same query before it waits on a
+   transition that will never run. */
+@media (prefers-reduced-motion: reduce){
+  .outline-toggle, .outline-toggle svg, body[data-anim="smooth"] .toc-pane-wrap{ transition: none; }
+}
 
 /* ---------- inline extensions: sup/sub/ins/mark ---------- */
 .content-pane sup, .content-pane sub{ font-size: 0.72em; line-height: 1; }

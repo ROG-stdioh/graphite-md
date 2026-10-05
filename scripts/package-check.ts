@@ -31,6 +31,9 @@ const { listFiles } = require('@vscode/vsce') as typeof import('@vscode/vsce');
 
 const root = path.join(__dirname, '..');
 
+/** The prefix every binding this extension contributes must sit under — see the check at the end. */
+const OWN_CHORD = 'ctrl+g ';
+
 // Must be in the .vsix or the extension is broken for every user. The webview
 // assets are the interesting half: they resolve against extensionUri inside the
 // running extension, so a missing one is invisible in the dev host, where the
@@ -125,7 +128,13 @@ async function main(): Promise<void> {
   // esbuild's quoting and spacing, and a check that fails because the bundler
   // changed its mind about quotes is worse than the defect it guards.
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
-    contributes?: { commands?: { command?: unknown }[] };
+    contributes?: {
+      commands?: { command?: unknown }[];
+      keybindings?: { command?: unknown; key?: unknown }[];
+      // Every menu is a list of entries; which menus exist is not this check's
+      // business, only the command ids inside them.
+      menus?: Record<string, { command?: unknown }[]>;
+    };
   };
   const contributed = (manifest.contributes?.commands ?? [])
     .map((entry) => entry.command)
@@ -139,6 +148,50 @@ async function main(): Promise<void> {
       `contributed in package.json but never registered, so clicking it reports "command '${id}' not found" — or the bundle is stale, in which case run \`npm run build\``
     );
   }
+
+  // And the other direction, for the ids that name one of ours. A keybinding or
+  // a menu entry pointing at a command nobody contributed fails in the same
+  // silent way as an unregistered command: VS Code warns into a log the user
+  // never opens, and the key does nothing at all. Only the ids under this
+  // extension's own prefix are asserted — a keybinding may legitimately remap a
+  // built-in command, and a check that forbade that would be wrong about the
+  // manifest rather than about a defect. The count guards the vacuous pass: an
+  // empty list would satisfy the rest of the condition on its own.
+  const referenced = [
+    ...(manifest.contributes?.keybindings ?? []),
+    ...Object.values(manifest.contributes?.menus ?? {}).flat(),
+  ]
+    .map((entry) => entry.command)
+    .filter((id): id is string => typeof id === 'string' && id.startsWith('graphiteMd.'));
+  const named = new Set(referenced);
+  const orphaned = [...named].filter((id) => !contributed.includes(id));
+  check(
+    `every graphiteMd command the keybindings and menus name is contributed (${named.size} referenced)`,
+    named.size > 0 && orphaned.length === 0,
+    `named but never contributed, so the entry does nothing: ${orphaned.join(', ')}`
+  );
+
+  // And that every binding sits under the extension's own chord prefix.
+  //
+  // `Ctrl+K` is VS Code's prefix for its own file and folder commands, and
+  // `Ctrl+K V` is the built-in Markdown preview's — so a binding there shadows
+  // something, and the same keys end up meaning graphite.md in one window and
+  // VS Code in the next. That is what this extension shipped. This check is the
+  // half of the fix that cannot rot: a new command with a hand-picked `Ctrl+K`
+  // binding fails here, in the fast loop, rather than in a reader's hands — and
+  // changing the prefix now takes editing this line, which is the review such a
+  // decision should get.
+  const keybindings = manifest.contributes?.keybindings ?? [];
+  const strayed = keybindings
+    .filter((entry) => typeof entry.key === 'string' && !entry.key.startsWith(OWN_CHORD))
+    .map((entry) => `${String(entry.command)}: ${String(entry.key)}`);
+  // The count guards the vacuous pass, as above: no keybindings at all would
+  // satisfy the rest of this on its own.
+  check(
+    `every keybinding sits under the extension's own chord (${keybindings.length} bound)`,
+    keybindings.length > 0 && strayed.length === 0,
+    `outside "${OWN_CHORD.trim()}", so it shadows a VS Code gesture or another extension's — add it under the chord, or change OWN_CHORD deliberately: ${strayed.join(', ')}`
+  );
 
   const unexpected = files.filter((f) => !ALLOWED.some((p) => p.test(f))).sort();
   check(

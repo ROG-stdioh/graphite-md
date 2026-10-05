@@ -71,3 +71,49 @@ export const REMOTE_IMAGES_DEFAULT = false;
 export function resolveRemoteImages(raw: unknown, fallback: boolean): boolean {
   return typeof raw === 'boolean' ? raw : fallback;
 }
+
+/** Mirrors the `graphiteMd.typographer` contribution in package.json. */
+export const TYPOGRAPHER_DEFAULT = true;
+
+/**
+ * Decides whether the renderer applies markdown-it's typographic
+ * substitutions: straight quotes to curly, `--` to an en dash, `...` to an
+ * ellipsis.
+ *
+ * The same coercion rule as above, and the same reason for it — a hand-edited
+ * `"typographer": "no"` arrives as a string wearing a boolean's type, and
+ * `Boolean('no')` is `true`, so anything that is not a boolean falls back
+ * rather than being read backwards.
+ *
+ * The default is *on*, which is where this diverges from VS Code's preview: its
+ * `markdown.preview.typographer` ships off. A reader who wants the two previews
+ * to agree turns this off; the substitution is a characteristic of this one
+ * rather than a mistake in it, so it stays on until asked otherwise.
+ */
+export function resolveTypographer(raw: unknown, fallback: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : fallback;
+}
+
+/** Mirrors the `graphiteMd.animation` contribution in package.json. */
+export const ANIMATION_DEFAULT = true;
+
+/**
+ * Decides whether folding the outline away is animated.
+ *
+ * The same coercion rule as the two above, and the same reason for it: a
+ * hand-edited `"animation": "off"` arrives as a string wearing a boolean's
+ * type, and `Boolean('off')` is `true` — so a value that is not a boolean falls
+ * back rather than being read backwards.
+ *
+ * The default is *on*, which is the prototype's verdict rather than this
+ * file's: the pane leaving is easier to follow when it is seen to leave. It is
+ * a setting at all because the cost of it is real — a 300px transition
+ * re-lays-out the reading column on every frame, so the text re-wraps under a
+ * reader who is mid-sentence, and a reader who would rather not pay that turns
+ * it off and gets the fold instantly. The page also honours the system's
+ * `prefers-reduced-motion`, which overrides this in the direction of less
+ * motion and never more.
+ */
+export function resolveAnimation(raw: unknown, fallback: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : fallback;
+}

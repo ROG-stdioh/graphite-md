@@ -1,0 +1,38 @@
+{
+  // The integration suite: the only program in this repo that emits.
+  //
+  // Every other tsconfig here sets noEmit and leaves emitting to esbuild,
+  // because the extension and the webview are bundled. These files are not
+  // bundled — @vscode/test-cli hands them to a running VS Code, whose extension
+  // host requires them the way Node requires anything else — so they have to be
+  // plain CommonJS on disk before the runner starts.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    // mocha for `suite` and `test`, which the TDD interface declares as globals
+    // rather than as imports: importing them from 'mocha' resolves to this
+    // repo's copy, and a second mocha instance's suite() registers into a root
+    // suite the running reporter never visits — the tests would simply not run.
+    "types": ["node", "mocha"],
+    // Not the base's `preserve`, for the reason above: this package has no
+    // `"type": "module"`, so a `.js` file holding ESM syntax is a SyntaxError
+    // the moment VS Code requires it. `node18` is the Node-shaped setting —
+    // TypeScript reads the format off the nearest package.json, which declares
+    // none, and emits CommonJS. The base's `bundler` resolution is for
+    // bundlers and does not apply to a loader. Not `commonjs`/`node10`, which
+    // TypeScript 6 deprecates outright (TS5107).
+    "module": "node18",
+    // Stated rather than inherited: the base's `bundler` is rejected outright
+    // beside `module: node18` (TS5095), and TypeScript insists on the
+    // Node-shaped resolution beside it (TS5109). node16 is that algorithm.
+    "moduleResolution": "node16",
+    "noEmit": false,
+    "rootDir": ".",
+    // Into out/, which .vscodeignore already excludes wholesale apart from
+    // out/extension.js — the same rule that keeps the profiler bundle and the
+    // page bundle out of the .vsix. A directory of its own would need a line in
+    // two ignore files, and the next thing added to it would need one again.
+    "outDir": "../out/test"
+  },
+  "include": ["**/*.ts"]
+}

@@ -2,7 +2,7 @@
   "name": "graphite-md",
   "displayName": "graphite.md",
   "description": "A richer Markdown preview: collapsible sections, a git-graph style outline, checklists, math, and diagrams.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "rog-stdioh",
   "license": "MIT",
   "icon": "icon.png",
@@ -52,6 +52,12 @@
         "icon": "$(open-preview)"
       },
       {
+        "command": "graphiteMd.toggleOutline",
+        "title": "Toggle Outline",
+        "category": "graphite.md",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "graphiteMd.showOutput",
         "title": "Show Output",
         "category": "graphite.md",
@@ -74,15 +80,28 @@
         {
           "command": "graphiteMd.openToSide",
           "when": "editorLangId == markdown"
+        },
+        {
+          "command": "graphiteMd.toggleOutline",
+          "when": "activeWebviewPanelId == 'graphiteMd' || editorLangId == markdown"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "graphiteMd.openToSide",
-        "key": "ctrl+k v",
-        "mac": "cmd+k v",
+        "command": "graphiteMd.open",
+        "key": "ctrl+g p",
         "when": "editorLangId == markdown"
+      },
+      {
+        "command": "graphiteMd.openToSide",
+        "key": "ctrl+g s",
+        "when": "editorLangId == markdown"
+      },
+      {
+        "command": "graphiteMd.toggleOutline",
+        "key": "ctrl+g o",
+        "when": "activeWebviewPanelId == 'graphiteMd' || editorLangId == markdown"
       }
     ],
     "configuration": {
@@ -99,6 +118,16 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Load images from the network (`https://`) in the preview. Off by default: a preview is a local reading surface, and turning this on lets any document you open make requests to servers its author chose, which tells them your IP and that you opened the file. Images stored beside the document are never affected by this setting."
+        },
+        "graphiteMd.typographer": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Turn the characters you typed into their typographic forms: straight quotes become curly, `--` becomes an en dash, `...` becomes an ellipsis. On by default here; VS Code's own Markdown preview has the same option (`markdown.preview.typographer`) with it off, so a document can read slightly differently in the two previews. Code blocks and inline code are never touched by it."
+        },
+        "graphiteMd.animation": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Animate the outline pane as it folds away and comes back. On by default. Turning it off makes the fold instant, which is worth doing if you read long documents in a narrow window: the reading column keeps its share of the width while the pane opens and closes, so an animated fold re-wraps the text under you for the length of it. Either way the fold follows the system's \"reduce motion\" setting, which always makes it instant."
         }
       }
     }
@@ -112,23 +141,29 @@
     "profile": "node scripts/profile.ts",
     "profile:webview": "node scripts/profile-webview.ts",
     "test:bdd": "cucumber-js",
-    "check": "node scripts/render-check.ts && node scripts/graph-check.ts",
+    "check": "node scripts/render-check.ts && node scripts/golden-check.ts && node scripts/graph-check.ts",
+    "check:golden": "node scripts/golden-check.ts",
     "check:media": "node scripts/media-version-check.ts",
     "check:package": "node scripts/package-check.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json && tsc -p test/tsconfig.json --noEmit",
     "lint": "eslint .",
-    "knip": "knip"
+    "knip": "knip",
+    "test:integration": "npm run build && tsc -p test/tsconfig.json && vscode-test"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
     "@types/markdown-it": "^14.2.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
     "@types/vscode": "~1.134.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.21.0",
     "eslint": "^10.10.0",
     "jiti": "^2.7.0",
     "knip": "^6.35.1",
+    "parse5": "^8.0.1",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.0"
   },
@@ -142,6 +177,7 @@
     "markdown-it-sub": "^2.0.0",
     "markdown-it-sup": "^2.0.0",
     "markdown-it-texmath": "^1.0.0",
-    "mermaid": "^10.9.1"
+    "mermaid": "^10.9.1",
+    "yaml": "^2.9.1"
   }
 }

@@ -35,6 +35,23 @@ basalt-admin snapshot verify --latest
 - [ ] Coordinator, all storage nodes and all gateways on the same 2.x patch release
 - [ ] At least 25% free disk on every node — the migration rewrites the shard index and it is not small
 
+<details>
+<summary>What a clean <code>--check-compat</code> looks like</summary>
+
+```text
+compat: 3 blocking checks, 0 failed
+  coordinators     2.8.4   ok
+  storage nodes    2.8.4   ok   (12/12)
+  gateways         2.8.4   ok
+  client SDKs      2.7.1+  ok   (minimum 2.7.1)
+```
+
+Anything reading `warn` is the thing to chase now, not during the window. The one that has
+bitten us is an SDK pinned by a transitive dependency: the application is on 2.8 and the
+driver it pulls in is on 2.5.
+
+</details>
+
 ## Cutover
 
 This is the only step that touches production. Expect 6 to 9 minutes.
@@ -45,9 +62,20 @@ This is the only step that touches production. Expect 6 to 9 minutes.
 4. Upgrade storage nodes in batches of 3, rolling
 5. Upgrade gateways and un-drain
 
+| Step | Expected | Pausable |
+| :--- | ---: | :--- |
+| Gateway drain | 1–2 min | yes |
+| Coordinator upgrade | 2–3 min | yes, between nodes |
+| Storage batches | 3–5 min | yes, between batches |
+| Un-drain | under 1 min | no |
+
 - [ ] Step 3 complete, leadership stable on a single coordinator for two minutes
 - [ ] Step 4 batch 1 healthy before starting batch 2
 - [ ] Writes flowing, verified with a real client rather than a smoke test
+
+> **If the drain stalls**, it is almost always one gateway holding an idle keep-alive
+> connection open. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the drain cleanly and leaves the
+> cluster exactly where it was — nothing is committed until step 3.
 
 ## Verification
 
@@ -62,11 +90,18 @@ seen most is a shard that reads correctly and rejects writes under compaction.
 
 ## Rollback
 
-Rolling back is supported for one hour after cutover and only if no 3.0-only features have
-been enabled. Check before you need it:
+Rolling back is supported for one hour after the [cutover](#cutover), and only if no 3.0-only
+features have been enabled. Check before you need it:
 
 ```sh
 basalt-admin cluster features --list-enabled
+```
+
+```mermaid
+graph TD
+    Done[Cutover complete] --> Check[Check enabled features]
+    Check -- none 3.0-only --> Back[Rollback available for one hour]
+    Check -- shard-rebalancing or streaming-snapshots --> Forward[Fix forward with support]
 ```
 
 If anything reads `shard-rebalancing` or `streaming-snapshots`, rollback is no longer
