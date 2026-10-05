@@ -489,6 +489,13 @@ document.addEventListener('click', (e) => {
   const body = document.getElementById(target);
   if (!body) return;
   setCollapsed(body, !body.classList.contains('collapsed'));
+  // A fold changes which headings are on screen — it takes a whole subtree's
+  // worth of them off, and shortens the document, which can carry the reader
+  // past a heading they have not scrolled to. The browser fires no scroll event
+  // for that on its own, and the sweep is the only thing that knows a heading
+  // without a box is not a heading you can be reading, so it is asked again
+  // rather than left holding an answer about a section that is now folded.
+  onScroll();
 });
 
 /**
@@ -832,17 +839,76 @@ outlineToggle.addEventListener('click', () => {
 applyOutlineCollapsed(outlineCollapsed);
 
 // ================= scroll-spy (content headings only, suppressed while navLock is true) =================
+// Every heading in the document, in document order, collected once. The ones
+// inside a folded section are in here on purpose: a fold is the sweep's own
+// problem to notice, below, and filtering them out at collection time would
+// mean collecting again on every fold.
 const headings = Array.from(document.querySelectorAll<HTMLElement>('.section-head'));
+
+/** How far below the pane's top edge a heading has to fall to be the one being read. */
+const ACTIVE_HEADING_LINE = 80;
+
+/**
+ * Whether the pane has no more to scroll.
+ *
+ * One pixel of slack rather than an exact comparison: a fractional zoom level
+ * leaves `scrollTop` a fraction short of `scrollHeight - clientHeight`, and a
+ * preview that is for ever "not quite at the bottom" is the failure this
+ * exists to describe.
+ */
+function atEndOfScroll(): boolean {
+  return contentPane.scrollTop + contentPane.clientHeight >= contentPane.scrollHeight - 1;
+}
 
 function onScroll(): void {
   if (navLock) return;
-  const first = headings[0];
-  let currentId: string | null = first ? first.dataset.target ?? null : null;
   const paneTop = contentPane.getBoundingClientRect().top;
+
+  // The last heading whose top has passed the line. Initialised to the first so
+  // that a reader who has not scrolled yet sees the opening section rather than
+  // no section at all.
+  //
+  // A heading with no box is skipped, and that is the one part of this that is
+  // not geometry. Everything under `.section-body.collapsed` is `display: none`,
+  // and an element with no box measures as a rect of zeros — a top of 0 is above
+  // every line, so without this every heading in every folded section passes no
+  // matter where the pane is, and the last of them wins whenever it comes after
+  // the last visible heading that passed. The height of the rect already in hand
+  // is what says whether there is a box; `offsetParent` would be a second read
+  // for the same answer.
+  //
+  // `lastVisible` falls out of the same pass, for the rule below.
+  const first = headings[0];
+  let currentId: string | null = first?.dataset.target ?? null;
+  let lastVisible: HTMLElement | null = null;
   for (const h of headings) {
     const r = h.getBoundingClientRect();
-    if (r.top - paneTop < 80) currentId = h.dataset.target ?? null;
+    if (r.height === 0) continue;
+    lastVisible = h;
+    if (r.top - paneTop < ACTIVE_HEADING_LINE) currentId = h.dataset.target ?? null;
   }
+
+  // The rule above cannot reach the end of a document by itself. Scrolling
+  // stops when the document's end meets the pane's bottom edge, so a heading
+  // passes the line only if what follows it is at least as tall as the pane —
+  // and what follows the last heading is one section body, normally shorter
+  // than that. That heading, and often the two or three before it, can
+  // therefore never be reached, and the highlight stops advancing while the
+  // page still has more to show.
+  //
+  // At the end of the scroll the last heading that has a box is the one on
+  // screen, whatever its distance from the top. Which is why the sweep above
+  // has to know about folded sections for this to be right: in a document whose
+  // last section is folded, the last heading overall is a hidden one.
+  //
+  // Only when the pane can scroll at all. A document that fits entirely has no
+  // end to reach — and `atEndOfScroll` is true of it from the first frame, for
+  // the same reason — so the sweep has already answered for it.
+  const scrollable = contentPane.scrollHeight > contentPane.clientHeight;
+  if (lastVisible !== null && scrollable && atEndOfScroll()) {
+    currentId = lastVisible.dataset.target ?? null;
+  }
+
   contentGraph.setActive(currentId);
 }
 contentPane.addEventListener('scroll', onScroll);
