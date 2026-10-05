@@ -177,6 +177,7 @@
     "markdown-it-sub": "^2.0.0",
     "markdown-it-sup": "^2.0.0",
     "markdown-it-texmath": "^1.0.0",
-    "mermaid": "^10.9.1"
+    "mermaid": "^10.9.1",
+    "yaml": "^2.9.1"
   }
 }

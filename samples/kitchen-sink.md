@@ -7,12 +7,12 @@ tags: [sample, conformance]
 
 Everything the preview can render, in one file.
 
-The three lines above the title are front matter, and none of it reaches the
-page: the opening `---`, the YAML and the closing `---` are read and dropped, so
-the document starts at the title. The paragraph above this one is the subtitle —
-the renderer gives the first paragraph after the title `class="doc-sub"`, which
-is the "a title, then one line" shape most documents want — and this is ordinary
-body text.
+The three lines above the title are front matter, and they are drawn as the
+table at the top of the page rather than as the rule and stray heading they used
+to be. The title and the tags are the two rows of it. The paragraph above this
+one is the subtitle — the renderer gives the first paragraph after the title
+`class="doc-sub"`, which is the "a title, then one line" shape most documents
+want — and this is ordinary body text.
 
 Open the file in the Extension Development Host (`npm run build`, then F5) to
 eyeball the whole feature set at once, or point the check scripts at it:

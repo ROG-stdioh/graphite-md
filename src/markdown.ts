@@ -12,6 +12,12 @@ import markdownItMark from 'markdown-it-mark';
 import markdownItFootnote from 'markdown-it-footnote';
 import katex from 'katex';
 import hljs from 'highlight.js';
+// Front matter is YAML, and read with a parser rather than line by line: the
+// values that break a split on the first colon — `title: "a: b"`, a quoted
+// string, a block scalar, an indented map — are ordinary front matter, and a
+// preview that mangles a title looks broken in a way that showing nothing did
+// not. This is the parser VS Code's own preview uses.
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 // TocNode lives in the shared contract, not here: it is the shape of the
 // outline data that crosses to the webview, so the host and the webview have to
 // name the same type or the guard in protocol.ts is checking something else.
@@ -265,7 +271,7 @@ try {
   log.error('failed to register markdown-it-footnote, footnotes will be disabled', err);
 }
 
-// ---- front matter: read and dropped -----------------------------------------
+// ---- front matter: read and shown as a table --------------------------------
 // `---`, the YAML, `---`, at the very top of the file: front matter to every
 // tool that reads these documents — Jekyll, Hugo, GitHub's README rendering,
 // VS Code's own Markdown preview — and this renderer did not know it existed.
@@ -282,8 +288,14 @@ try {
 // line below it pointing where it did — the `data-line` a task checkbox carries
 // is a position in this source, and the lines are counted rather than removed.
 //
-// `---` only. markdown-it ships no front-matter rule, and the plugin that does
-// this is a third runtime dependency for twenty lines. `+++` and `{` are not
+// The block is drawn rather than dropped, as the table VS Code's preview draws
+// for it. That reverses a decision made one release earlier, and the reason is
+// the documents: front matter stopped being a static-site-generator habit, and
+// a skill, a memory or a note now opens with `name:` and `description:` — the
+// part that says what the document is for is exactly the part that was being
+// thrown away.
+//
+// `---` only. markdown-it ships no front-matter rule. `+++` and `{` are not
 // accepted here because the preview this extension is measured against does not
 // accept them either.
 const FRONT_MATTER_FENCE = /^---[ \t]*$/;
@@ -316,7 +328,14 @@ function frontMatter(state: StateBlock, startLine: number, endLine: number, sile
   for (let line = startLine + 1; line < endLine; line++) {
     if (!FRONT_MATTER_FENCE.test(lineAt(state, line))) continue;
     if (silent) return true;
-    // Consumed through the closing fence, and no token pushed for any of it.
+    // Consumed through the closing fence, and the YAML carried on the token —
+    // parsed in the renderer rather than here, where a rule may be asked whether
+    // it matches without anything being rendered.
+    const token = state.push('front_matter', '', 0);
+    token.map = [startLine, line + 1];
+    token.markup = '---';
+    const from = state.bMarks[startLine + 1] ?? 0;
+    token.content = state.src.slice(from, state.bMarks[line] ?? from).replace(/\n$/, '');
     state.line = line + 1;
     return true;
   }
@@ -327,6 +346,75 @@ function frontMatter(state: StateBlock, startLine: number, endLine: number, sile
 }
 
 md.block.ruler.before('hr', 'front_matter', frontMatter);
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * One front matter value, as the inside of a cell.
+ *
+ * A copy of VS Code's mapping, because the table is drawn for parity and the
+ * parity is only worth having if it holds for the documents people write: a list
+ * of tags is a list rather than `sample, conformance`, a nested map is shown as
+ * the YAML it is, and everything else is its own text.
+ *
+ * Escaped rather than rendered as Markdown, which is VS Code's rule and the
+ * reason a `title:` is safe to show: front matter is the part of a document that
+ * arrives from a tool rather than from the author, so `title: <img onerror=...>`
+ * is text here and stays text.
+ */
+function frontMatterValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    return `<ul>${value.map((item) => `<li>${frontMatterValue(item)}</li>`).join('')}</ul>`;
+  }
+  if (value instanceof Date) return escapeHtml(value.toISOString());
+  if (typeof value === 'object') return `<code>${escapeHtml(stringifyYaml(value).trimEnd())}</code>`;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return escapeHtml(String(value));
+  if (typeof value === 'string') return escapeHtml(value);
+  // A scalar YAML cannot produce — a symbol, a function. Written out rather than
+  // left to `String`, which would print a function's source into the page.
+  return '';
+}
+
+/**
+ * The front matter table: one row per top-level entry, the key in a `<th>` and
+ * the value in a `<td>`, in a single tbody — no header row, because the keys are
+ * row headers and a header row would have to invent names for them.
+ *
+ * A parse error is shown rather than thrown. It is the one thing here that can
+ * fail on input, and a document whose front matter is malformed is still a
+ * document: taking the preview down would hide the writing along with the
+ * metadata, which is the failure this rule was written to stop making.
+ */
+function frontMatterTable(source: string): string {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(source);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return (
+      `<div class="frontmatter-error" role="alert">` +
+      `<strong>Failed to parse front matter</strong><pre>${escapeHtml(message)}</pre></div>`
+    );
+  }
+  if (parsed === null || parsed === undefined) return '';
+  // A document can be a list, and YAML says front matter does not have to be a
+  // map. There is no key to name, so the value gets the row to itself.
+  const entries =
+    typeof parsed === 'object' && !Array.isArray(parsed)
+      ? Object.entries(parsed as Record<string, unknown>)
+      : ([['', parsed]] as Array<[string, unknown]>);
+  if (entries.length === 0) return '';
+  const rows = entries
+    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${frontMatterValue(value)}</td></tr>`)
+    .join('');
+  return `<table class="frontmatter"><tbody>${rows}</tbody></table>`;
+}
+
+md.renderer.rules.front_matter = (tokens, idx) => frontMatterTable(at(tokens, idx, 'a front matter token').content);
 
 // ---- blockquote -> .callout -------------------------------------------------
 md.renderer.rules.blockquote_open = () => `<blockquote class="callout">`;
@@ -382,6 +470,14 @@ md.renderer.rules.table_open = () => `<table class="md-table">`;
 // attribute runs into the one before it.
 const TABLE_TAG = /<table(?=[\s/>])[^>]*>/gi;
 const TABLE_ID = /(\s)id\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+// The one table in the pane that the document did not write. It is the metadata
+// above the first heading, not a table of the document's data, and an outline
+// entry pointing at it — "Introduction — table 1", scrolling to a block of keys
+// nobody was reading as a table — would be the Tables view describing its own
+// plumbing. Recognised by the class the renderer gives it, which is also what
+// preview.css keys off to keep it out of the content tables' styling.
+const FRONT_MATTER_TABLE = /<table(?=[\s/>])[^>]*\bclass\s*=\s*(["'])[^"']*\bfrontmatter\b/i;
 
 let tableCounter = 0;
 
@@ -830,6 +926,7 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
   function collectTables(html: string, sectionLabel: string): string {
     const targets: string[] = [];
     const scanned = html.replace(TABLE_TAG, (tag) => {
+      if (FRONT_MATTER_TABLE.test(tag)) return tag;
       const authored = authoredTableId(tag);
       const id = authored === undefined ? claimTableId() : claimId(authored);
       targets.push(id);
@@ -910,10 +1007,17 @@ export function renderMarkdown(rawSource: string, env: RenderEnv = {}): RenderRe
     : '';
 
   // first paragraph right after the H1 reads as a subtitle, matching the
-  // "title + one-liner" convention most docs use
+  // "title + one-liner" convention most docs use.
+  //
+  // The `<p>` this looks for is no longer the first character of the intro when
+  // the document opens with front matter, because the renderer draws that table
+  // above everything else — a `<p>` anchored at the start would find a `<table>`
+  // and the summary would quietly stop being one. So the table is stepped over,
+  // and only there: without front matter the optional group matches nothing and
+  // this is the expression it always was.
   const introWithSubtitle = introHtml.replace(
-    /^<p>/,
-    '<p class="doc-sub">'
+    /^(<table class="frontmatter">[\s\S]*?<\/table>\s*)?<p>/,
+    '$1<p class="doc-sub">'
   );
 
   return {

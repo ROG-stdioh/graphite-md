@@ -1,11 +1,11 @@
 <h1 class="doc-title">graphite.md — Kitchen Sink</h1>
-<p class="doc-sub">Everything the preview can render, in one file.</p>
-<p>The three lines above the title are front matter, and none of it reaches the
-page: the opening <code>---</code>, the YAML and the closing <code>---</code> are read and dropped, so
-the document starts at the title. The paragraph above this one is the subtitle —
-the renderer gives the first paragraph after the title <code>class=&quot;doc-sub&quot;</code>, which
-is the “a title, then one line” shape most documents want — and this is ordinary
-body text.</p>
+<table class="frontmatter"><tbody><tr><th>title</th><td>graphite.md — Kitchen Sink</td></tr><tr><th>tags</th><td><ul><li>sample</li><li>conformance</li></ul></td></tr></tbody></table><p class="doc-sub">Everything the preview can render, in one file.</p>
+<p>The three lines above the title are front matter, and they are drawn as the
+table at the top of the page rather than as the rule and stray heading they used
+to be. The title and the tags are the two rows of it. The paragraph above this
+one is the subtitle — the renderer gives the first paragraph after the title
+<code>class=&quot;doc-sub&quot;</code>, which is the “a title, then one line” shape most documents
+want — and this is ordinary body text.</p>
 <p>Open the file in the Extension Development Host (<code>npm run build</code>, then F5) to
 eyeball the whole feature set at once, or point the check scripts at it:</p>
 <p><strong>Open the enclosing folder, not just this file.</strong> A preview may load local

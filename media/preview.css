@@ -151,6 +151,34 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 .content-pane th{ background: var(--bg-sidebar); font-weight: 600; color: var(--ink); }
 .content-pane td{ color: var(--ink-soft); }
 
+/* Front matter, which src/markdown.ts draws as a table of the document's
+   metadata. The rule above styles every table in the pane, which is right for
+   the ones the writing produced and wrong for this one: a bordered grid of keys
+   with a filled header sits directly above the title and reads as the first
+   section of the document rather than as the label on the file. So it is taken
+   back out of that styling — no grid, no fill, rows separated by the faintest
+   line, the key in the muted tone — and left as what it is. */
+.content-pane table.frontmatter{ width: auto; margin: 0 0 20px 0; font-size: 13px; }
+.content-pane table.frontmatter th,
+.content-pane table.frontmatter td{
+  border: 0;
+  border-top: 1px solid var(--border);
+  padding: 5px 0;
+  vertical-align: top;
+}
+.content-pane table.frontmatter tr:first-child th,
+.content-pane table.frontmatter tr:first-child td{ border-top: 0; }
+.content-pane table.frontmatter th{
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  padding-right: 18px;
+}
+.content-pane table.frontmatter td{ color: var(--ink-soft); }
+.content-pane table.frontmatter ul{ margin: 0; padding-left: 18px; }
+.content-pane table.frontmatter code{ font-size: 12.5px; }
+
 /* math — rendered server-side by KaTeX (see src/markdown.ts), styled here.
    .katex-display is KaTeX's own class for block ($$...$$) math; plain .katex
    is what's left for inline ($...$) math, so we key directly off those
