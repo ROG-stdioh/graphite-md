@@ -14,7 +14,7 @@ expensive, because they are still in the quorum. Every read that touches one wai
 and the read path has no way to tell "slow" from "about to answer."
 
 This note works out how much that costs, and reports measurements from a five-node Basalt
-cluster that agree with the model to within about 9%.
+cluster that agree with the model to within about 9% — the numbers are in [Results](#results).
 
 ## Model
 
@@ -48,6 +48,17 @@ $$
 For $r = \lceil n/2 \rceil$ and small $p$, this is well approximated by the probability that
 *any* of the $n - r + 1$ replicas the coordinator would fall back to is slow.
 
+<details>
+<summary>Where the approximation comes from</summary>
+
+The coordinator asks the $r$ fastest replicas, so a slow one only costs anything when it is
+*among* the $r$ fastest — that is, when fewer than $r$ healthy replicas are available to
+fill the quorum first. The exact sum counts every such arrangement; for small $p$ and $q$
+the arrangements with two or more slow replicas in the quorum are rare enough to drop, and
+what is left is the probability that any of the fallbacks is slow.
+
+</details>
+
 ## The tail is not the mean
 
 The mean is dominated by the healthy case, which is why the effect is easy to miss on a
@@ -75,7 +86,13 @@ obvious in hindsight and was not obvious to us when we sized the default.
 
 Five `m6i.2xlarge` nodes, one stream, 12 KB records, 40k reads/s sustained for six hours. Slow
 replicas were introduced with `tc netem` at the 20-minute mark, and removed at the 40-minute
-mark, so each run contains a clean baseline, a degraded window, and a recovery.
+mark, so each run contains a clean baseline, a degraded window, and a recovery:
+
+- **Baseline** (minutes 0–20) — no injected fault, and the reference distribution.
+- **Degraded** (minutes 20–40) — one replica under `tc netem`, then two:
+  - one slow replica, the case the model calls $p = 0.2$;
+  - two slow replicas, or $p = 0.4$.
+- **Recovery** (minutes 40–60) — the fault removed, to confirm the tail returns to baseline.
 
 ```mermaid
 graph LR
@@ -93,7 +110,7 @@ graph LR
 ### Results
 
 | Condition | Mean | p95 | p99 |
-| --- | --- | --- | --- |
+| :--- | ---: | ---: | ---: |
 | Baseline, $p = 0$ | 1.9 ms | 3.1 ms | 5.4 ms |
 | One slow replica, $p = 0.2$ | 2.4 ms | 6.8 ms | 22.1 ms |
 | Two slow, $p = 0.4$ | 3.6 ms | 18.4 ms | 41.7 ms |
@@ -110,6 +127,10 @@ A replica that answers in 400 ms is worse for the tail than one that does not an
 because the dead one leaves the quorum and the slow one stays in it. Our current check is a
 two-second deadline, which is far too generous — it admits exactly the replicas that do the
 most damage.
+
+> **The health check is asking the wrong question.** Liveness asks "did it answer?", and the
+> answer is yes for precisely the replicas doing the damage. Latency asks "did it answer in
+> time?", which is the question the read path is already asking on every request.
 
 A hedge would help: issue the read to $r + 1$ replicas and take the first $r$ responses,
 accepting the extra load as the price of a bounded tail. We have not measured that yet, and
