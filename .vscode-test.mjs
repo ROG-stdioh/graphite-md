@@ -10,6 +10,18 @@ import { defineConfig } from '@vscode/test-cli';
 export default defineConfig({
   files: 'out/test/**/*.test.js',
 
+  // The way into the preview's own page. VS Code is Electron, so this opens the
+  // Chrome DevTools Protocol on localhost, where the webview appears in
+  // `/json/list` as an iframe target with a debugger URL of its own — see
+  // test/suite/cdp.ts for what connects to it and why that is the only way in.
+  //
+  // A fixed port rather than a random one, because the process that needs to
+  // know it is the test suite, which runs *inside* the editor being launched: it
+  // cannot be told a port the launcher picked, so both files carry the number.
+  // Two suites running at once on one machine is the one collision this allows,
+  // and on this machine (and a CI runner) there is only ever one.
+  launchArgs: ['--remote-debugging-port=9333'],
+
   // Pinned to the floor of `engines.vscode`, deliberately. `stable` would test
   // the newest editor and say nothing about the oldest one the Marketplace is
   // still offering this extension to — and it is the oldest that breaks first,
