@@ -33,6 +33,43 @@ Feature: Reading a document
     When the preview renders it
     Then the preview has no document title
 
+  # ---- the subtitle ---------------------------------------------------------
+  # The "title + one-liner" convention: a document that names itself in an H1
+  # and then says one sentence has that sentence read as a subtitle rather than
+  # as the opening of the body.
+  Scenario: The paragraph under the title reads as a subtitle
+    Given a markdown document:
+      """
+      # Shard Rebalancing
+
+      Shards move between storage nodes.
+
+      ## Summary
+
+      The detail.
+      """
+    When the preview renders it
+    Then the preview shows "Shards move between storage nodes." as the subtitle
+    Then the preview shows "Summary" as a heading
+
+  # And the rule stops at the title. It was applied to whichever paragraph came
+  # first, title or no title — so a note that opened with prose had its opening
+  # line rendered muted and smaller than everything after it, which reads as a
+  # rendering fault rather than as a convention. The two assertions either side
+  # are the control: the note is named, and the paragraph is on the page. It is
+  # just not a subtitle.
+  Scenario: A document with no heading has no subtitle
+    Given a markdown document:
+      """
+      Just a paragraph of prose, and a second sentence.
+
+      Another paragraph.
+      """
+    When the preview renders it
+    Then the preview has no document title
+    Then the preview shows the text "Just a paragraph of prose, and a second sentence."
+    Then the preview shows no subtitle
+
   Scenario: A second top-level heading becomes a section rather than replacing the title
     Given a markdown document:
       """

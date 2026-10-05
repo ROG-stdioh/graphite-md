@@ -98,6 +98,33 @@ Then<PreviewWorld>('the preview has no document title', function () {
   );
 });
 
+// The opening paragraph of a document that names itself reads as a subtitle.
+// "Exactly one" rather than "one of them", so a renderer that marked every
+// paragraph is a failure and not a longer list of successes.
+Then<PreviewWorld>('the preview shows {string} as the subtitle', function (expected: string) {
+  const subtitles = byClass(parseHtml(this.html), 'doc-sub');
+  assert.strictEqual(
+    subtitles.length,
+    1,
+    `expected exactly one subtitle, found ${subtitles.length}`
+  );
+  const [subtitle] = subtitles;
+  assert.ok(subtitle, 'expected a subtitle element');
+  const reads = textOf(subtitle).trim();
+  assert.strictEqual(reads, expected, `the subtitle reads ${JSON.stringify(reads)}`);
+});
+
+// Never evidence on its own: a renderer that dropped the paragraph satisfies
+// it. Every scenario using this asserts what did render beside it, so "not a
+// subtitle" cannot be reached by "not a paragraph".
+Then<PreviewWorld>('the preview shows no subtitle', function () {
+  assert.deepStrictEqual(
+    byClass(parseHtml(this.html), 'doc-sub'),
+    [],
+    'expected no subtitle, but the opening paragraph was rendered as one'
+  );
+});
+
 // A section is what the preview makes collapsible — one per heading below the
 // title, at whatever level.
 Then<PreviewWorld>('the preview shows {int} collapsible sections', function (expected: number) {
