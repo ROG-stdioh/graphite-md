@@ -311,15 +311,17 @@ Feature: Reading a document
   # ---- front matter --------------------------------------------------------
   # `---` at the top of the file is front matter to every tool that reads these
   # documents — Jekyll, Hugo, VS Code's own Markdown preview, GitHub's
-  # rendering of a README. graphite.md rendered it as a rule, the YAML as a
-  # heading, and another rule.
+  # rendering of a README. Left to the ordinary block rules it is a rule, then a
+  # heading, then another rule, which is where the first two scenarios below
+  # come from: the metadata is drawn as the table VS Code draws for it, and it
+  # is drawn *as a table* rather than as the shape the plain rules would make.
   #
   # What it must never do is hide the document with it. A block that runs from
   # the first line to the end of the file because nothing closed it looks
-  # exactly like a block that worked, and it is why the absent assertions below
-  # are never alone: each one sits beside what did render.
+  # exactly like a block that worked, and it is why no scenario here ends on the
+  # table: each one finishes with what rendered below the block.
 
-  Scenario: Front matter is not rendered
+  Scenario: Front matter is drawn as a table above the title
     Given a markdown document:
       """
       ---
@@ -333,9 +335,89 @@ Feature: Reading a document
       """
     When the preview renders it
     Then the document title is "Title"
+    Then the preview draws the front matter as a table
+    Then the front matter table has 2 rows
+    Then the front matter row "title" holds "Shard Rebalancing"
+    Then the front matter row "tags" holds a list of 2 items
     Then the preview shows the text "Body text."
-    Then the preview does not show "title: Shard Rebalancing"
-    Then the preview does not show "tags: [storage, replication]"
+
+  # The reason the values are read by a YAML parser rather than by splitting
+  # each line on its first colon, which is the shape this would otherwise have
+  # been written in. A colon inside quotes, and a boolean that is not the word
+  # "true" but the value true, are both ordinary front matter.
+  Scenario: A value only a YAML parser reads correctly
+    Given a markdown document:
+      """
+      ---
+      title: "Rebalancing: a note"
+      draft: true
+      ---
+
+      # Title
+      """
+    When the preview renders it
+    Then the document title is "Title"
+    Then the front matter row "title" holds "Rebalancing: a note"
+    Then the front matter row "draft" holds "true"
+
+  # Front matter is the one part of a document that arrives from a tool rather
+  # than from the author, which is why its values are shown as text. The title
+  # below has to reach the page as the characters that were written, and the
+  # `<img>` count is the other half of the same claim: markup in a value is not
+  # markup, and there is nothing there for it to have become.
+  Scenario: A value is text and not markup
+    Given a markdown document:
+      """
+      ---
+      title: <img src=x onerror=alert(1)>
+      metadata:
+        type: user
+      ---
+
+      # Title
+      """
+    When the preview renders it
+    Then the front matter row "title" holds "<img src=x onerror=alert(1)>"
+    Then the front matter row "metadata" holds the YAML "type: user"
+    Then the preview shows 0 img elements
+
+  # A document whose front matter is malformed is still a document. Throwing
+  # would take the preview down and hide the writing along with the metadata.
+  Scenario: Unparseable front matter is reported, not thrown
+    Given a markdown document:
+      """
+      ---
+      title: "unclosed
+      ---
+
+      # Title
+
+      Body text.
+      """
+    When the preview renders it
+    Then the preview reports a front matter error
+    Then the document title is "Title"
+    Then the preview shows the text "Body text."
+
+  # The Tables view lists the document's tables, and the metadata block is not
+  # one of them: an entry above every other, scrolling to a grid of keys, would
+  # be the outline describing its own plumbing. Counted rather than named,
+  # because the fault is a table that should not be in the list at all.
+  Scenario: The front matter table is not one of the document's tables
+    Given a markdown document:
+      """
+      ---
+      title: Shard Rebalancing
+      ---
+
+      # Title
+
+      | a | b |
+      |---|---|
+      | 1 | 2 |
+      """
+    When the preview renders it
+    Then the outline lists 1 tables
 
   Scenario: Front matter does not take the document with it
     Given a markdown document:

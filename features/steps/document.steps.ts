@@ -15,7 +15,7 @@ import type { DataTable } from '@cucumber/cucumber';
 import type * as Html from '../lib/html';
 import type { PreviewWorld } from '../support/world';
 
-const { allElements, attrOf, byClass, classesOf, parseHtml, textOf }: typeof Html =
+const { allElements, attrOf, byClass, byTag, classesOf, parseHtml, textOf }: typeof Html =
   require('../lib/html.ts') as typeof Html;
 
 // The annotation and the cast are both load-bearing; neither is redundant.
@@ -164,4 +164,97 @@ Then<PreviewWorld>('no two elements share an id', function () {
     [],
     `these ids are on more than one element: ${JSON.stringify(shared)}`
   );
+});
+
+// ---- front matter ---------------------------------------------------------
+// The table src/markdown.ts draws for the YAML above the first heading.
+//
+// Every assertion here is on the parsed tree rather than on the text, and that
+// is the whole point of them: the faults these scenarios guard against are
+// shapes. The keys arriving as a heading, the block arriving as prose, a value's
+// markup arriving as markup — all three put the same words on the page, and a
+// substring search is satisfied by any of them.
+//
+// So each scenario that reads a row also asserts what rendered below the block.
+// A table drawn correctly above a document that lost its title is not a pass.
+
+/** The one front matter table, or a failure naming how many were found. */
+function frontMatterTable(html: string): Html.El {
+  const tables = byClass(parseHtml(html), 'frontmatter');
+  assert.strictEqual(tables.length, 1, `expected one front matter table in the preview, found ${tables.length}`);
+  const table = tables[0];
+  if (table === undefined) throw new Error('unreachable: the count above leaves exactly one table');
+  return table;
+}
+
+/** A row's key cell, which is what a scenario naming a key is asking for. */
+function rowKey(row: Html.El): string {
+  const key = byTag(row, 'th')[0];
+  return key === undefined ? '' : textOf(key);
+}
+
+/**
+ * The row whose key reads `key`, or a failure listing the keys that are there:
+ * a scenario asking for `title` against a table that says `Title` should say so
+ * rather than report a missing value.
+ */
+function frontMatterRow(html: string, key: string): Html.El {
+  const rows = byTag(frontMatterTable(html), 'tr');
+  const row = rows.find((r) => rowKey(r) === key);
+  assert.ok(
+    row !== undefined,
+    `no front matter row for "${key}"; the table's keys are ${JSON.stringify(rows.map(rowKey))}`
+  );
+  return row;
+}
+
+/** A row's value cell, which is the second half of it. */
+function rowValue(html: string, key: string): Html.El {
+  const cell = byTag(frontMatterRow(html, key), 'td')[0];
+  assert.ok(cell !== undefined, `the front matter row for "${key}" has no value cell`);
+  return cell;
+}
+
+Then<PreviewWorld>('the preview draws the front matter as a table', function () {
+  frontMatterTable(this.html);
+});
+
+Then<PreviewWorld>('the front matter table has {int} rows', function (expected: number) {
+  const rows = byTag(frontMatterTable(this.html), 'tr');
+  assert.strictEqual(rows.length, expected, `expected ${expected} front matter row(s), found ${rows.length}`);
+});
+
+Then<PreviewWorld>('the front matter row {string} holds {string}', function (key: string, value: string) {
+  const held = textOf(rowValue(this.html, key));
+  assert.strictEqual(held, value, `the front matter row for "${key}" holds ${JSON.stringify(held)}`);
+});
+
+// A list is the one value that is not its own text: `sample, conformance` and
+// two `<li>` elements are different answers, and it is the second one the
+// document meant.
+Then<PreviewWorld>('the front matter row {string} holds a list of {int} items', function (key: string, expected: number) {
+  const cell = rowValue(this.html, key);
+  const items = byTag(cell, 'li');
+  assert.strictEqual(
+    byTag(cell, 'ul').length,
+    1,
+    `the front matter row for "${key}" is not a list: it holds ${JSON.stringify(textOf(cell))}`
+  );
+  assert.strictEqual(items.length, expected, `expected ${expected} item(s) in "${key}", found ${items.length}`);
+});
+
+// A nested map has no cell of its own to be flattened into, so it is shown as
+// the YAML it is.
+Then<PreviewWorld>('the front matter row {string} holds the YAML {string}', function (key: string, yaml: string) {
+  const code = byTag(rowValue(this.html, key), 'code')[0];
+  assert.ok(code !== undefined, `the front matter row for "${key}" holds no code element`);
+  assert.strictEqual(textOf(code).trimEnd(), yaml);
+});
+
+Then<PreviewWorld>('the preview reports a front matter error', function () {
+  const errors = byClass(parseHtml(this.html), 'frontmatter-error');
+  assert.strictEqual(errors.length, 1, `expected one front matter error, found ${errors.length}`);
+  const first = errors[0];
+  if (first === undefined) throw new Error('unreachable: the count above leaves exactly one');
+  assert.strictEqual(attrOf(first, 'role'), 'alert', 'the front matter error is not announced');
 });
