@@ -120,6 +120,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Turn the characters you typed into their typographic forms: straight quotes become curly, `--` becomes an en dash, `...` becomes an ellipsis. On by default here; VS Code's own Markdown preview has the same option (`markdown.preview.typographer`) with it off, so a document can read slightly differently in the two previews. Code blocks and inline code are never touched by it."
+        },
+        "graphiteMd.animation": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Animate the outline pane as it folds away and comes back. On by default. Turning it off makes the fold instant, which is worth doing if you read long documents in a narrow window: the reading column keeps its share of the width while the pane opens and closes, so an animated fold re-wraps the text under you for the length of it. Either way the fold follows the system's \"reduce motion\" setting, which always makes it instant."
         }
       }
     }

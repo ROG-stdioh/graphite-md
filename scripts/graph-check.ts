@@ -1349,6 +1349,7 @@ const page = buildWebviewHtml({
   cspSource: 'https://webview.test',
   remoteImages: false,
   contentWidth: 60,
+  animation: true,
   bodyHtml: '<p>body</p>',
   headings: [],
   tables: [],

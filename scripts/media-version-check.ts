@@ -89,6 +89,7 @@ async function main(): Promise<void> {
       cspSource: 'https://webview.test',
       remoteImages: false,
       contentWidth: 60,
+      animation: true,
       bodyHtml: '<p>body</p>',
       headings: [],
       tables: [],

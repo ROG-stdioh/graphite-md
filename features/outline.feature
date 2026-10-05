@@ -33,6 +33,22 @@ Feature: The outline pane
       """
     When the preview renders it
 
+  # How the fold is drawn, as the page receives it. The pane is either given a
+  # width transition or taken out of the layout outright, and both of those are
+  # CSS — so the page's half of the setting is the attribute the stylesheet
+  # switches on, and this says a name the two sides disagree about, or a default
+  # that never reached the body, fails somewhere rather than nowhere.
+  Scenario: The fold is animated unless the reader turns it off
+    Given a markdown document "hello"
+    When the preview renders it
+    Then the page animates the fold
+
+  Scenario: The fold is instant when the setting is off
+    Given the animation setting is off
+    And a markdown document "hello"
+    When the preview renders it
+    Then the page does not animate the fold
+
   Scenario: The Content view follows the document's own nesting
     Then the outline reads:
       | section     | depth |

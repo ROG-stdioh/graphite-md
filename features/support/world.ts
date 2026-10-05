@@ -118,6 +118,14 @@ class PreviewWorld extends World {
    */
   remoteImages: boolean;
   /**
+   * The `graphiteMd.animation` setting, as the page builder reads it.
+   *
+   * Here for the same reason `remoteImages` is: it reaches the page as an
+   * attribute on the body rather than as anything the renderer produces, so a
+   * scenario about a document cannot reach it and one about the page can.
+   */
+  animation: boolean;
+  /**
    * The `graphiteMd.typographer` setting, as the renderer reads it.
    *
    * Three states rather than two: `null` is the setting being absent, which is
@@ -151,6 +159,7 @@ class PreviewWorld extends World {
     this.refSource = '';
     this.docInFolder = false;
     this.remoteImages = false;
+    this.animation = true;
     this.typographer = null;
     this.logState = { line: '', bounded: '', original: '' };
   }
@@ -202,6 +211,7 @@ class PreviewWorld extends World {
     return buildWebviewHtml({
       ...PAGE_STAND_IN,
       remoteImages: this.remoteImages,
+      animation: this.animation,
       bodyHtml: this.html,
     });
   }

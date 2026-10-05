@@ -23,6 +23,8 @@ export interface WebviewHtmlOptions {
   /** Whether the `graphiteMd.remoteImages` setting is on. */
   remoteImages: boolean;
   contentWidth: number;
+  /** Whether the `graphiteMd.animation` setting is on — see the body below. */
+  animation: boolean;
   bodyHtml: string;
   headings: TocNode[];
   tables: TocNode[];
@@ -127,7 +129,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
 <link rel="stylesheet" href="${mediaUrl('vendor/katex/katex.min.css')}">
 <link rel="stylesheet" href="${mediaUrl('preview.css')}">
 </head>
-<body style="--content-width:${options.contentWidth}%">
+<body style="--content-width:${options.contentWidth}%" data-anim="${options.animation ? 'smooth' : 'instant'}">
   <div class="shell">
     <div class="content-pane-wrap scroll-wrap">
       <div class="scroll-body content-pane" id="contentPane" data-scroll>
@@ -156,9 +158,11 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
       </div>
       <div class="scroll-track"><div class="scroll-thumb"></div></div>
     </div>
-  </div>
 
-  <button class="outline-toggle" id="outlineToggle" type="button" aria-controls="tocPaneWrap" aria-expanded="true" aria-label="Hide the outline"><span class="chev">▾</span></button>
+    <button class="outline-toggle" id="outlineToggle" type="button" aria-controls="tocPaneWrap" aria-expanded="true" aria-label="Hide the outline">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
 
   <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${JSON.stringify(initialData)};</script>
 ${mermaidTag}  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
