@@ -142,15 +142,19 @@
     "check:golden": "node scripts/golden-check.ts",
     "check:media": "node scripts/media-version-check.ts",
     "check:package": "node scripts/package-check.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p tsconfig.node.json && tsc -p test/tsconfig.json --noEmit",
     "lint": "eslint .",
-    "knip": "knip"
+    "knip": "knip",
+    "test:integration": "npm run build && tsc -p test/tsconfig.json && vscode-test"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
     "@types/markdown-it": "^14.2.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
     "@types/vscode": "~1.134.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.21.0",
     "eslint": "^10.10.0",

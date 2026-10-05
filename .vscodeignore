@@ -22,6 +22,12 @@ scripts/**
 samples/**
 docs/**
 features/**
+# The integration suite and its runner's config. The suite is compiled into
+# out/test/ before it runs — see test/tsconfig.json — so nothing here is loaded
+# from the working tree either. `.vscode-test/**` above is only the editor the
+# runner downloads; without this line the sources and the dotfile both ship.
+test/**
+.vscode-test.mjs
 cucumber.js
 # Every dev/test bundle lands in out/ beside extension.js, which is the one file
 # in there that must ship. Stated as "everything, except" rather than as a list

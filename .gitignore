@@ -3,6 +3,11 @@ out/
 media/vendor/
 *.vsix
 
+# The editor @vscode/test-cli downloads for the integration suite (~150 MB,
+# unpacked in the workspace). Already in .vscodeignore for the .vsix; ignored
+# here so it never reaches a commit either.
+.vscode-test/
+
 # The webview bundle. Built by esbuild from src/webview/main.ts, never edited in
 # place and never committed: a checked-in build artifact is a stale one the
 # moment someone edits the source and forgets to rebuild, and the check scripts
