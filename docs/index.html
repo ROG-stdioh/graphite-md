@@ -157,8 +157,12 @@
      either direction.
      ==================================================================== */
 
-  /* The captures are wide; the 760px column is for prose. */
-  #page-gallery{ max-width: none; }
+  /* The captures are wide; the 760px column is for prose — but the gallery is
+     a column all the same, not a full-bleed page. It is bounded, and centred
+     by main's justify-content, so it sits on the same axis as the README and
+     Documentation tabs instead of starting at the window edge. 1120px is about
+     as narrow as the widest capture (1445px) can be shown and still read. */
+  #page-gallery{ max-width: 1120px; }
   #page-gallery h1,
   #page-gallery h2,
   #page-gallery h3{ text-wrap: balance; margin: 0; }
@@ -210,6 +214,9 @@
      is valid before the first pass runs. */
   #page-gallery .viewport{
     --k: 1;
+    /* A capture narrower than the column centres on it; one that fills the
+       column is unaffected. */
+    margin-inline: auto;
     position: relative; overflow: hidden;
     background: var(--bg-code);
     border: 1px solid var(--border-strong);
@@ -318,7 +325,9 @@
      The captures sit in wrappers (each needs its label above it), so the
      flex sizing has to land on the wrapper, not on .viewport. */
   #page-gallery .pair{ display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
-  #page-gallery .pair > *{ flex: 1 1 320px; min-width: 0; }
+  /* 560px, not 320px: in the centred column the two 780px captures stack and
+     are shown at their own size rather than being scaled to sit side by side. */
+  #page-gallery .pair > *{ flex: 1 1 560px; min-width: 0; }
   #page-gallery .pair-label{
     font-family: var(--mono); font-size: 11px; color: var(--muted);
     margin-bottom: 7px; letter-spacing: 0.03em;
@@ -335,6 +344,18 @@
     font-family: var(--mono); font-size: 12px; background: var(--accent-soft);
     color: var(--accent); padding: 1px 5px; border-radius: 4px;
   }
+
+  /* ---- centring the prose ----
+     Every block of text takes the README's own 760px measure and centres on
+     the column's axis, so the gallery is set exactly as the other two tabs are
+     and only the captures use the extra width. Declared here, after the rules
+     above, so it wins the inline axis against their margin shorthands. */
+  #page-gallery .brief,
+  #page-gallery .plate-head,
+  #page-gallery .blurb,
+  #page-gallery .plate-note,
+  #page-gallery .legend,
+  #page-gallery .site-foot{ max-width: 760px; margin-inline: auto; }
 
   @media (max-width: 700px){
     #page-gallery .plate{ margin-top: 40px; }
