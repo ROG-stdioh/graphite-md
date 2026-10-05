@@ -14,13 +14,6 @@ Feature: Math
   # readings — a renderer that opened a span on `$5` puts a formula where the
   # price was, which the count sees, and one that opened and then failed puts a
   # red error box there instead, which only the errors see.
-  #
-  # The price follows the formula rather than preceding it, and that is not
-  # arbitrary. A price *before* a formula on the same line is issue #38: the
-  # price's `$` opens a span and the formula's `$` closes it, swallowing
-  # everything between them. Written the other way round this scenario would
-  # pin that bug instead of the behaviour, so it is written this way until #38
-  # is fixed.
   Scenario: A price in prose is not the start of a formula
     Given a markdown document "The area is $x^2$, and it costs $5 today."
     When the preview renders it
@@ -35,6 +28,48 @@ Feature: Math
     Then the preview typesets 1 piece of math
     And the math typeset on the page reads "x"
     And the preview shows the text "Costs $5 and $10"
+
+  # ---- a price *before* a formula -------------------------------------------
+  # Issue #38, and the hazard the dollars-only set actually carries. The rule
+  # paired the first `$` it saw with the next `$` its own guard would accept, so
+  # in `$5, and $x^2$` the price opened a span and the formula's own opening `$`
+  # closed it. Everything between them became one formula, the page showed a red
+  # error box where the sentence had been, and the maths the author wrote did not
+  # render at all.
+  #
+  # The rule that fixes it is the one VS Code's preview already uses, read from
+  # extensions/markdown-math and @vscode/markdown-it-katex: a `$` opens only if
+  # the *next* `$` can legally close it. An opener whose next `$` is preceded by
+  # a space is not an opener, and the scan resumes at that `$` rather than
+  # running on past it to a later one.
+  Scenario: A price before a formula does not swallow it
+    Given a markdown document "It costs $5, and $x^2$ is the area."
+    When the preview renders it
+    Then the preview typesets 1 piece of math
+    And the preview marks no math as bad
+    And the math typeset on the page reads "x^2"
+    And the preview shows the text "It costs $5, and"
+
+  # The same fault with the digits further apart, which is the shape the issue
+  # was filed from. The count is what separates "the author's one formula" from
+  # "one formula and one accident" — a page carrying both looks plausible.
+  Scenario: Two prices before a formula
+    Given a markdown document "It costs $5, and the other costs $10, unlike $x + y$ which is maths."
+    When the preview renders it
+    Then the preview typesets 1 piece of math
+    And the preview marks no math as bad
+    And the math typeset on the page reads "x + y"
+
+  # The closer is the next `$`, but an escaped `$` is not a delimiter at all.
+  # VS Code skips it when hunting for the closer and so must this, or the fix for
+  # the two scenarios above would cost a formula KaTeX can read: `\$` is a
+  # literal dollar in TeX, so this is a sentence about a currency amount.
+  Scenario: An escaped dollar inside a formula is not a delimiter
+    Given a markdown document "The price $\text{US\$}$ is a dollar."
+    When the preview renders it
+    Then the preview renders it as inline math
+    And the preview marks no math as bad
+    And the math typeset on the page reads "\text{US\$}"
 
   # LaTeX's own delimiters, which other previews accept and this one does not.
   # The backslashes are consumed by Markdown's escape rule, so the reader sees

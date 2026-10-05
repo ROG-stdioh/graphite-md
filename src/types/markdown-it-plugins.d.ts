@@ -52,7 +52,7 @@ declare module 'markdown-it-footnote' {
 }
 
 declare module 'markdown-it-texmath' {
-  import type { PluginWithOptions } from 'markdown-it';
+  import type { PluginWithOptions, StateInline } from 'markdown-it';
 
   // Only the options this project passes. texmath's real contract is wider (it
   // takes several engines and more knobs); declaring just these is what makes
@@ -72,6 +72,38 @@ declare module 'markdown-it-texmath' {
     katexOptions?: Record<string, unknown>;
   }
 
-  const plugin: PluginWithOptions<TexmathOptions>;
+  // One delimiter rule. texmath keeps these in `texmath.rules`, keyed by
+  // delimiter-set name, and reads the same objects in `mergeDelimiters` — so
+  // they are the library's extension point, not an internal. markdown.ts reads
+  // one member out of here to restate it with a narrower regexp, which is why
+  // the shape is declared rather than left as `any`: read from the installed
+  // source, `texmath.rules.dollars.inline` and the `rex`/`pre`/`post`/
+  // `tmpl`/`tag` members each rule carries.
+  //
+  // `pre` and `post` are the guards on the characters *outside* the delimiters —
+  // what may precede the opening one and what may follow the closing one.
+  export interface TexmathRule {
+    name: string;
+    rex: RegExp;
+    tmpl: string;
+    tag: string;
+    displayMode?: boolean;
+    outerSpace?: boolean;
+    pre?(str: string, outerSpace: boolean, pos: number): boolean;
+    post?(str: string, outerSpace: boolean, pos: number): boolean;
+  }
+
+  export interface TexmathDelimiterSet {
+    inline: TexmathRule[];
+    block: TexmathRule[];
+  }
+
+  // The factory texmath uses to turn one rule into a markdown-it inline rule,
+  // exported alongside `rules` and the counterpart to it: a rule re-stated
+  // through here is registered the way texmath would have registered it.
+  const plugin: PluginWithOptions<TexmathOptions> & {
+    rules: Record<string, TexmathDelimiterSet>;
+    inline(rule: TexmathRule): (state: StateInline, silent: boolean) => boolean;
+  };
   export default plugin;
 }
