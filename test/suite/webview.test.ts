@@ -76,6 +76,82 @@ const LONG_DOCUMENT = [
 ].join('\n');
 
 /**
+ * A document that ends on a short section.
+ *
+ * The scroll-spy marks the last heading that has passed a line 80px below the
+ * pane's top edge, and a heading can only pass it if what follows is tall
+ * enough to push it there — which the last heading's own body, one line, never
+ * is. The filler above is what makes the page scrollable at all: the rule the
+ * test below pins only applies to a pane that has somewhere to scroll to, and
+ * a document that fits was already answered for.
+ */
+const SECTIONS_DOCUMENT = [
+  `# ${HEADING}`,
+  '',
+  ...Array.from({ length: 40 }, (_, i) => `Filler ${i}, one of the lines that makes this page taller than the pane.`),
+  '',
+  '## First',
+  '',
+  ...Array.from({ length: 20 }, (_, i) => `More filler ${i}.`),
+  '',
+  '## Last',
+  '',
+  'One line under the last heading.',
+  '',
+].join('\n');
+
+/**
+ * A document whose last section holds a subsection.
+ *
+ * The shape a fold has to be noticed in: the heading a fold takes off the page is
+ * the *last* one in the document, so it comes after every heading the reader can
+ * still see. A hidden heading measures as a rect of zeros, and a top of 0 is
+ * above every reading line — so without the sweep knowing the difference, this is
+ * the fixture where the row it lights is for a heading that is not on the page.
+ */
+const FOLD_LAST_DOCUMENT = [
+  `# ${HEADING}`,
+  '',
+  '## First',
+  '',
+  ...Array.from({ length: 40 }, (_, i) => `Filler ${i}, under the first section.`),
+  '',
+  '## Last',
+  '',
+  '### Nested',
+  '',
+  ...Array.from({ length: 20 }, (_, i) => `Filler ${i}, under the nested one.`),
+  '',
+].join('\n');
+
+/**
+ * A document where the section holding the reader's heading is the one folded.
+ *
+ * The stack of filler under the last heading is the point of it: the fold takes
+ * most of the document's height out from under the reader, and the pane has to
+ * still have somewhere to scroll afterwards. A document that suddenly fits is
+ * clamped by the browser, and a clamp is a scroll event the sweep would be woken
+ * by anyway — which is the case this test is not about. What it is about is the
+ * fold that wakes nobody.
+ */
+const FOLD_FIRST_DOCUMENT = [
+  `# ${HEADING}`,
+  '',
+  '## First',
+  '',
+  ...Array.from({ length: 20 }, (_, i) => `Filler ${i}, under the first section.`),
+  '',
+  '### Nested',
+  '',
+  ...Array.from({ length: 10 }, (_, i) => `Filler ${i}, under the nested one.`),
+  '',
+  '## Last',
+  '',
+  ...Array.from({ length: 200 }, (_, i) => `Filler ${i}, under the last section, keeping the page tall.`),
+  '',
+].join('\n');
+
+/**
  * Mermaid, on its own.
  *
  * A separate fixture rather than a block in the one above, because the diagram
@@ -190,6 +266,58 @@ async function styled(): Promise<void> {
 
 /** An expression that answers whether the outline pane is folded away. */
 const FOLDED = 'document.querySelector("#tocPaneWrap").classList.contains("collapsed")';
+
+/** An expression that reads the label of the outline row the sweep has lit. */
+const ACTIVE_ROW = `(() => {
+  const row = document.querySelector('#graphContent .toc-row.active');
+  return row ? row.textContent.trim() : null;
+})()`;
+
+/** Where two headings ended up, in pixels below the reading pane's top edge. */
+interface Placement {
+  /** The heading the reader is meant to be on. Negative is above the edge. */
+  anchor: number;
+  /** A second heading, named by the caller because the arrangement needs it. */
+  other: number;
+}
+
+/**
+ * An expression that scrolls the reading pane until the `anchor` heading sits
+ * `at` pixels under the pane's top edge — negative for above it — and answers
+ * where both headings ended up against that same edge, which is the line the
+ * sweep reads.
+ *
+ * The numbers come back so the caller can assert the arrangement it needs rather
+ * than assume the page took it: the scroll is clamped at both ends, and a pane
+ * that could not reach the position asked for would leave the test asserting
+ * about a page it never built.
+ */
+function scrollToHeading(anchor: string, at: number, other: string): string {
+  const selector = (id: string): string => JSON.stringify(`[data-target="${id}"].section-head`);
+  return `(() => {
+    const pane = document.getElementById('contentPane');
+    const paneTop = pane.getBoundingClientRect().top;
+    const fromTop = (selector) => document.querySelector(selector).getBoundingClientRect().top - paneTop;
+    pane.scrollTop += fromTop(${selector(anchor)}) - (${at});
+    return { anchor: fromTop(${selector(anchor)}), other: fromTop(${selector(other)}) };
+  })()`;
+}
+
+/**
+ * An expression that folds the section whose heading carries `bodyId`, and reads
+ * the lit row in the same expression.
+ *
+ * One expression on purpose: the fold asks the sweep again in the same turn, so
+ * this reads the answer the fold produced rather than one a later frame settled
+ * on — and a second round trip would give a re-render a gap to land in.
+ */
+function foldSection(bodyId: string): string {
+  return `(() => {
+    document.querySelector('[data-target=${JSON.stringify(bodyId)}].section-head').click();
+    const row = document.querySelector('#graphContent .toc-row.active');
+    return row ? row.textContent.trim() : null;
+  })()`;
+}
 
 /** Poll something on the host side of the boundary, where there is no page to ask. */
 async function waitForHost(what: string, probe: () => boolean, timeoutMs = 15_000): Promise<void> {
@@ -360,6 +488,105 @@ suite('the preview, driven through its own page', () => {
       })()`
     );
     assert.ok(parseFloat(height) > 0, `the thumb's height is ${height}`);
+  });
+
+  // The scroll-spy's own hard case, and the one no other layer can reach: it
+  // needs a page that really scrolls and really lays out, which the BDD suite
+  // and the graph-check double both lack. Scrolling stops when the document's
+  // end meets the pane's bottom edge, so the last heading can only pass the
+  // reading line if what follows it is at least as tall as the pane — and what
+  // follows it here is one line. The sweep alone leaves the highlight on an
+  // earlier section for ever; the end-of-scroll rule is what moves it.
+  test('lights the last section when the page is scrolled to its end', async () => {
+    await preview(await openFixture(SECTIONS_DOCUMENT));
+
+    // The control, and it is not decoration: a page that lit its last row from
+    // the first frame would satisfy the wait below without ever scrolling.
+    const start = await waitFor<string>('the outline to light a row', ACTIVE_ROW);
+    assert.strictEqual(start, 'First', `the highlight started on ${JSON.stringify(start)}`);
+
+    await evaluate(`(() => {
+      const pane = document.getElementById('contentPane');
+      pane.scrollTop = pane.scrollHeight;
+    })()`);
+
+    await waitFor('the highlight to reach the last section', `${ACTIVE_ROW} === 'Last'`);
+  });
+
+  // The other half of the fold, and the half that is not geometry: a heading with
+  // no box must not win the sweep. Everything under a folded section is
+  // `display: none`, an element with no box measures as a rect of zeros, and a
+  // top of 0 is above every reading line — so a hidden heading passes the line
+  // wherever the reader is, and the last of them wins whenever it comes after the
+  // last visible heading that passed. The fixture puts the fold on the last
+  // section, which is that arrangement exactly: the row it would light is for a
+  // heading nobody can see.
+  test('does not light a heading that a fold has hidden', async () => {
+    await preview(await openFixture(FOLD_LAST_DOCUMENT));
+
+    const start = await waitFor<string>('the outline to light a row', ACTIVE_ROW);
+    assert.strictEqual(start, 'First', `the highlight started on ${JSON.stringify(start)}`);
+
+    // Both numbers are asserted rather than assumed: the first heading has to be
+    // above the reading line and the last one below it, or the fold has no wrong
+    // answer available to it and the test proves nothing.
+    const placed = await evaluate<Placement>(scrollToHeading('body-first', -120, 'body-last'));
+    assert.ok(
+      placed.anchor < 80,
+      `the first heading never reached the reading line, so it was not the answer to begin with: ${JSON.stringify(placed)}`
+    );
+    assert.ok(
+      placed.other > 80,
+      `the last heading is already above the reading line, so the reader is not where this test needs them: ${JSON.stringify(placed)}`
+    );
+
+    const after = await evaluate<string | null>(foldSection('body-last'));
+    assert.strictEqual(
+      after,
+      'First',
+      `the fold moved the highlight onto a heading it had hidden: ${JSON.stringify(after)}`
+    );
+  });
+
+  // And the fold that takes away the heading the reader is actually on. Nothing
+  // asks the sweep again on its own: a fold fires no scroll event, and a browser
+  // has no reason to fire one for content that vanished inside the viewport. So
+  // without the ask, the highlight keeps a row whose heading is no longer on the
+  // page — and the pane goes on saying the reader is somewhere they are not.
+  //
+  // "Last" rather than "First", and that is the geometry rather than a
+  // preference: the fold takes a section's worth of content out from under the
+  // reader, everything below it moves up by that much, and the last heading ends
+  // up above the reading line. Which heading the reader lands on is the layout's
+  // business; that it is one they can see is this test's.
+  test('moves the highlight when a fold takes the heading being read away', async () => {
+    await preview(await openFixture(FOLD_FIRST_DOCUMENT));
+
+    const start = await waitFor<string>('the outline to light a row', ACTIVE_ROW);
+    assert.strictEqual(start, 'First', `the highlight started on ${JSON.stringify(start)}`);
+
+    const placed = await evaluate<Placement>(scrollToHeading('body-nested', 40, 'body-last'));
+    assert.ok(
+      placed.anchor < 80,
+      `the nested heading never reached the reading line, so the reader was not on it: ${JSON.stringify(placed)}`
+    );
+    assert.ok(
+      placed.other > 80,
+      `the last heading is already above the reading line, so it is the answer already: ${JSON.stringify(placed)}`
+    );
+
+    // Waited for rather than read: the scroll is set from here and the sweep runs
+    // when the browser gets round to telling the page about it. This is the step
+    // that says the reader is on the nested section — the fold below is the only
+    // thing that can take them off it.
+    await waitFor('the outline to follow the reader onto the nested section', `${ACTIVE_ROW} === 'Nested'`);
+
+    const after = await evaluate<string | null>(foldSection('body-first'));
+    assert.strictEqual(
+      after,
+      'Last',
+      `the highlight stayed on a heading the fold had hidden: ${JSON.stringify(after)}`
+    );
   });
 
   test('folds the outline from the corner control, and the button turns with it', async () => {
