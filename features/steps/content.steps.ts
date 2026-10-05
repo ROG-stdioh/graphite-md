@@ -1,81 +1,133 @@
 // Steps for what a document's content turns into: inline syntax, task lists,
-// math, diagrams, code blocks, links, and the two things the preview refuses
-// to do with raw HTML.
+// math, diagrams, code blocks, links, and the policy on the page the preview
+// loads.
+//
+// Every content assertion reads the parsed document rather than a pattern over
+// `this.html`. A string cannot be asked a structural question — whether an
+// element holds *this* text, whether it sits inside a code fence, whether a
+// heading is a heading — and the scenarios that could not fail were all of
+// them assertions of exactly that shape. The parser is in ../lib/html.
 //
 // See document.steps.ts for why every step takes a world type argument and
 // every parameter an annotation.
+import type * as Html from '../lib/html';
 import type { PreviewWorld } from '../support/world';
 
-// Annotated as well as cast — see document.steps.ts for why both are needed.
+const {
+  allElements,
+  attrOf,
+  byClass,
+  byTag,
+  classesOf,
+  commentsIn,
+  parseHtml,
+  textOf,
+}: typeof Html = require('../lib/html.ts') as typeof Html;
+
 const assert: typeof import('assert') = require('assert') as typeof import('assert');
-const { Then } = require('@cucumber/cucumber') as typeof import('@cucumber/cucumber');
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Does `text` appear wrapped in exactly this tag?
-function inTag(html: string, tag: string, text: string): boolean {
-  return new RegExp('<' + tag + '(?:\\s[^>]*)?>' + escapeRe(text) + '</' + tag + '>').test(html);
-}
-
-// Every link the preview produced, as { href, text }.
-function anchors(html: string): { href: string; text: string }[] {
-  return [...html.matchAll(/<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].map(
-    ([, href = '', body = '']) => ({
-      href,
-      text: body.replace(/<[^>]*>/g, '').trim(),
-    })
-  );
-}
+const { Given, Then } = require('@cucumber/cucumber') as typeof import('@cucumber/cucumber');
 
 // ---- inline syntax -------------------------------------------------------
 
+/**
+ * The text every `<tag>` in the preview holds, in document order.
+ *
+ * A list rather than a boolean so a failure can name what was there instead.
+ * "No `<sup>` element at all" and "a `<sup>` holding something else" are
+ * different faults — a missing plugin against a mis-wired one — and a message
+ * that says only what was expected leaves the reader to find out which by hand.
+ */
+function heldBy(html: string, tag: string): string[] {
+  return byTag(parseHtml(html), tag).map((el) => textOf(el));
+}
+
+// Exact text, not a substring: `<sup>20</sup>` is not what a scenario asking
+// for "2" means, and the old pattern got that right — what it could not do was
+// tell one tag from another, which is why the superscript and subscript
+// scenarios passed with the two plugins exchanged.
 Then<PreviewWorld>('the preview shows {string} as superscript', function (text: string) {
-  assert.ok(inTag(this.html, 'sup', text), `expected "${text}" in a <sup>`);
+  const held = heldBy(this.html, 'sup');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in a <sup>; the page's <sup> elements hold ${JSON.stringify(held)}`
+  );
 });
 
 Then<PreviewWorld>('the preview shows {string} as subscript', function (text: string) {
-  assert.ok(inTag(this.html, 'sub', text), `expected "${text}" in a <sub>`);
+  const held = heldBy(this.html, 'sub');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in a <sub>; the page's <sub> elements hold ${JSON.stringify(held)}`
+  );
 });
 
 Then<PreviewWorld>('the preview underlines {string}', function (text: string) {
-  assert.ok(inTag(this.html, 'ins', text), `expected "${text}" underlined`);
+  const held = heldBy(this.html, 'ins');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" underlined; the page's <ins> elements hold ${JSON.stringify(held)}`
+  );
 });
 
 Then<PreviewWorld>('the preview highlights {string}', function (text: string) {
-  assert.ok(inTag(this.html, 'mark', text), `expected "${text}" highlighted`);
+  const held = heldBy(this.html, 'mark');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" highlighted; the page's <mark> elements hold ${JSON.stringify(held)}`
+  );
 });
 
 Then<PreviewWorld>('the preview strikes through {string}', function (text: string) {
-  assert.ok(inTag(this.html, 's', text), `expected "${text}" struck through`);
+  const held = heldBy(this.html, 's');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" struck through; the page's <s> elements hold ${JSON.stringify(held)}`
+  );
 });
 
 // ---- footnotes -----------------------------------------------------------
 
 Then<PreviewWorld>('the note is rendered at the foot of the page', function () {
-  assert.ok(/<section class="footnotes">/.test(this.html), 'expected a footnotes section');
-  assert.ok(/class="footnote-ref"/.test(this.html), 'expected a reference in the body');
+  const footnotes = byClass(parseHtml(this.html), 'footnotes');
+  assert.ok(footnotes.length > 0, 'expected a footnotes section');
+  const refs = byClass(parseHtml(this.html), 'footnote-ref');
+  assert.ok(refs.length > 0, 'expected a reference in the body');
 });
 
 Then<PreviewWorld>('the note links back to the sentence that cited it', function () {
-  const m = this.html.match(/<a href="#(fnref\d+)" class="footnote-backref">/);
-  assert.ok(m, 'expected a back-reference from the note to its citation');
-  const id = m[1];
-  assert.ok(id !== undefined, 'the back-reference has no id to point at');
-  assert.ok(
-    this.html.includes('id="' + id + '"'),
-    `the note points back at "${id}", which is not in the document`
+  const root = parseHtml(this.html);
+  const back = allElements(root).filter(
+    (el) => el.tagName === 'a' && classesOf(el).includes('footnote-backref')
   );
+  assert.ok(back.length > 0, 'expected a back-reference from the note to its citation');
+
+  // The href rather than a pattern over the raw HTML, so the id is read out of
+  // the attribute the browser will follow instead of one that happens to sit
+  // near it in the source.
+  const ids = new Set(allElements(root).map((el) => attrOf(el, 'id')).filter(Boolean));
+  for (const anchor of back) {
+    const href = attrOf(anchor, 'href') ?? '';
+    assert.ok(href.startsWith('#'), `a back-reference points at ${JSON.stringify(href)}, not an id`);
+    assert.ok(
+      ids.has(href.slice(1)),
+      `the note points back at ${JSON.stringify(href)}, which is not in the document`
+    );
+  }
 });
 
 // ---- task lists ----------------------------------------------------------
 
 function taskItems(html: string): { checked: boolean; line: number | null }[] {
-  return [...html.matchAll(/<span class="task-checkbox( checked)?"(?: data-line="(\d+)")?><\/span>/g)].map(
-    ([, checked, line]) => ({
-      checked: Boolean(checked),
-      line: line === undefined ? null : Number(line),
-    })
-  );
+  return byClass(parseHtml(html), 'task-checkbox').map((el) => {
+    // Parsed rather than trusted: the attribute is written by the renderer and
+    // read by the host's write-back, and `data-line=""` or `data-line="x"`
+    // would otherwise arrive as a number and be checked as though it were one.
+    const parsed = Number.parseInt(attrOf(el, 'data-line') ?? '', 10);
+    return {
+      checked: classesOf(el).includes('checked'),
+      line: Number.isInteger(parsed) ? parsed : null,
+    };
+  });
 }
 
 function expectTaskItems(this: PreviewWorld, expected: number): void {
@@ -140,15 +192,21 @@ Then<PreviewWorld>('every checkbox can be toggled in the source file', function 
 // ---- math ----------------------------------------------------------------
 
 Then<PreviewWorld>('the preview renders it as math', function () {
-  assert.ok(/class="katex"/.test(this.html), 'expected KaTeX output');
+  assert.ok(byClass(parseHtml(this.html), 'katex').length > 0, 'expected KaTeX output');
 });
 
 Then<PreviewWorld>('the preview renders it as displayed math', function () {
-  assert.ok(/class="katex-display"/.test(this.html), 'expected display-mode KaTeX output');
+  assert.ok(
+    byClass(parseHtml(this.html), 'katex-display').length > 0,
+    'expected display-mode KaTeX output'
+  );
 });
 
 Then<PreviewWorld>('the bad math is marked rather than breaking the page', function () {
-  assert.ok(/katex-error/.test(this.html), 'expected the malformed maths to be flagged');
+  assert.ok(
+    byClass(parseHtml(this.html), 'katex-error').length > 0,
+    'expected the malformed maths to be flagged'
+  );
 });
 
 Then<PreviewWorld>('the render still produced a page', function () {
@@ -158,39 +216,73 @@ Then<PreviewWorld>('the render still produced a page', function () {
 // ---- diagrams ------------------------------------------------------------
 
 Then<PreviewWorld>('the preview renders a diagram', function () {
-  assert.ok(/class="mermaid"/.test(this.html), 'expected a mermaid container');
+  assert.ok(
+    byClass(parseHtml(this.html), 'mermaid').length > 0,
+    'expected a mermaid container'
+  );
 });
 
 Then<PreviewWorld>('the diagram is handed its source to draw', function () {
-  const m = this.html.match(/<div class="mermaid"[^>]*>([\s\S]*?)<\/div>/);
-  assert.ok(m, 'expected a mermaid container');
-  const source = (m[1] ?? '').trim();
+  const container = byClass(parseHtml(this.html), 'mermaid')[0];
+  assert.ok(container, 'expected a mermaid container');
+  const source = textOf(container).trim();
   assert.ok(source.length > 0, 'the mermaid container was handed nothing to draw');
 });
 
 // ---- code blocks ---------------------------------------------------------
 
+/** Every class highlight.js puts on its own output, on any element. */
+function highlightClasses(html: string): string[] {
+  return allElements(parseHtml(html))
+    .flatMap((el) => classesOf(el))
+    .filter((name) => name === 'hljs' || name.startsWith('hljs-'));
+}
+
 Then<PreviewWorld>('the code is syntax highlighted', function () {
-  assert.ok(/<pre class="hljs">/.test(this.html), 'expected a highlighted code block');
-  assert.ok(/class="hljs-/.test(this.html), 'expected highlight.js spans inside it');
+  const classes = highlightClasses(this.html);
+  assert.ok(classes.includes('hljs'), 'expected a highlighted <pre>, and none reached the page');
+  assert.ok(
+    classes.some((name) => name.startsWith('hljs-')),
+    `expected highlight.js spans inside it, found only ${JSON.stringify(classes)}`
+  );
 });
 
+// By class rather than by substring over the page: a document that merely
+// *mentions* highlight.js is not highlighted output, and the old check could
+// not tell the two apart.
 Then<PreviewWorld>('the code is shown without highlighting', function () {
-  assert.ok(!/hljs/.test(this.html), 'expected no highlighting, but highlight.js output was present');
+  assert.deepStrictEqual(
+    highlightClasses(this.html),
+    [],
+    'expected no highlighting, but highlight.js classes were present'
+  );
 });
 
-// Entities are decoded first so the scenario can quote what a reader sees
-// ("<angle brackets>") rather than what the HTML says (&lt;angle brackets&gt;).
+// Scoped to the code blocks themselves, which is what "the code shows" claims.
+// The old version decoded entities across the whole page and searched it, so
+// `literal` was satisfied by the text landing anywhere at all — including as a
+// paragraph, which is the failure this is supposed to catch.
 Then<PreviewWorld>('the code shows the literal text {string}', function (expected: string) {
-  const shown = this.html
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&');
-  assert.ok(shown.includes(expected), `expected the code block to show "${expected}"`);
+  const blocks = byTag(parseHtml(this.html), 'pre').map((el) => textOf(el));
+  assert.ok(
+    blocks.length > 0,
+    'the document rendered no code block at all, so this scenario proves nothing'
+  );
+  assert.ok(
+    blocks.some((text) => text.includes(expected)),
+    `expected a code block to show ${JSON.stringify(expected)}; the code blocks hold ${JSON.stringify(blocks)}`
+  );
 });
 
 // ---- links ---------------------------------------------------------------
+
+/** Every link the preview produced, as { href, text }. */
+function anchors(html: string): { href: string; text: string }[] {
+  return byTag(parseHtml(html), 'a').map((el) => ({
+    href: attrOf(el, 'href') ?? '',
+    text: textOf(el).trim(),
+  }));
+}
 
 Then<PreviewWorld>('{string} is not turned into a link', function (text: string) {
   const hit = anchors(this.html).find((a) => a.text === text);
@@ -211,37 +303,60 @@ Then<PreviewWorld>('{string} is an email link', function (text: string) {
   assert.ok(hit.href.startsWith('mailto:'), `expected a mailto: link, got ${hit.href}`);
 });
 
-// ---- safety --------------------------------------------------------------
+// ---- raw HTML ------------------------------------------------------------
 //
 // Raw HTML renders, so nothing here asserts that markup is *absent* — that
 // would be asserting the bug. What it asserts is that the markup arrives and
 // that the page the webview loads refuses to act on it. The renderer's half is
-// a string in `this.html`; the page's half is the policy in src/webviewHtml.ts,
+// the parsed document; the page's half is the policy in src/webviewHtml.ts,
 // built by the real module rather than a copy of it.
+//
+// Read off the parse rather than matched in the string, because the two are not
+// the same claim. A `<script src=…>` written inside an HTML comment is text as
+// far as a browser is concerned — the comment is hidden and nothing loads — and
+// the pattern this replaced found it and called it live markup. Which is the
+// direction that matters here: the check would have passed for a document whose
+// script was commented out.
 
 Then<PreviewWorld>('the {word} element is passed through as markup', function (tag: string) {
+  const found = byTag(parseHtml(this.html), tag).length;
   assert.ok(
-    new RegExp(`<${escapeRe(tag)}[\\s>]`, 'i').test(this.html),
-    `expected a live <${tag}> element in the rendered HTML, but the tag came through escaped`
+    found > 0,
+    `expected a live <${tag}> element in the rendered HTML, but no such element reached the page — the tag came through as text`
   );
 });
 
 Then<PreviewWorld>('the {word} attribute is passed through as markup', function (name: string) {
+  const carrying = allElements(parseHtml(this.html)).filter(
+    (el) => attrOf(el, name) !== undefined
+  );
   assert.ok(
-    new RegExp(`\\s${escapeRe(name)}\\s*=`, 'i').test(this.html),
-    `expected a live ${name}= attribute in the rendered HTML, but it came through escaped`
+    carrying.length > 0,
+    `expected a live ${name}= attribute in the rendered HTML, but no element carries one — it came through escaped`
   );
 });
 
 Then<PreviewWorld>('the comment saying {string} reaches the page as a real comment', function (text: string) {
+  const root = parseHtml(this.html);
+  const comments = commentsIn(root);
   assert.ok(
-    new RegExp(`<!--[\\s\\S]*?${escapeRe(text)}[\\s\\S]*?-->`).test(this.html),
-    `expected ${JSON.stringify(text)} inside a real HTML comment, but no comment reached the page`
+    comments.some((comment) => comment.includes(text)),
+    `expected ${JSON.stringify(text)} inside a real HTML comment; the page carries ${JSON.stringify(comments)}`
   );
   assert.ok(
-    !this.html.includes('&lt;!--'),
+    !textOf(root).includes('<!--'),
     'a comment came through escaped, so a reader would see the markup rather than the page hiding it'
   );
+});
+
+// ---- the page's policy ---------------------------------------------------
+
+Given<PreviewWorld>('remote images are on', function () {
+  this.remoteImages = true;
+});
+
+Given<PreviewWorld>('remote images are off', function () {
+  this.remoteImages = false;
 });
 
 /**
@@ -276,6 +391,11 @@ function directive(policy: string, name: string): string {
   return (m[1] ?? '').trim();
 }
 
+/** A directive's admitted sources, as a list. */
+function sourcesOf(policy: string, name: string): string[] {
+  return directive(policy, name).split(/\s+/).filter(Boolean);
+}
+
 Then<PreviewWorld>('the page allows scripts only from a nonce it issued itself', function () {
   const page = this.buildPage();
   const scriptSrc = directive(policyIn(page), 'script-src');
@@ -306,23 +426,43 @@ Then<PreviewWorld>('the page allows scripts only from a nonce it issued itself',
   // the preview's own code is refused alongside the document's — a blank panel
   // with a policy that looks correct in the source.
   //
-  // Every script the page loads, rather than the two this used to name. Naming
-  // them made the scenario assert the composer's shape as well as the policy's:
-  // mermaid is emitted only for a document with a diagram to draw (the gate in
-  // src/webviewHtml.ts), so a document without one has no mermaid tag and this
-  // failed for a page whose policy was perfectly correct. It would also have
-  // covered a third script by neither the list nor a count.
+  // Every script the *page* loads, rather than the two this used to name.
+  // Naming them made the scenario assert the composer's shape as well as the
+  // policy's: mermaid is emitted only for a document with a diagram to draw
+  // (the gate in src/webviewHtml.ts), so a document without one has no mermaid
+  // tag and this failed for a page whose policy was perfectly correct. It would
+  // also have covered a third script by neither the list nor a count.
   //
-  // Scoped to the scripts that carry a `src`, which is exactly the set the page
-  // chose to load. A `<script>` written *in* the document has no nonce on
-  // purpose — that is the whole scenario above it — so it is not this check's
-  // subject and must not be swept up by it.
-  const scripts = [...page.matchAll(/<script[^>]*\ssrc="[^"]*"[^>]*>/gi)].map((m) => m[0]);
+  // "The page's" is the load-bearing word, and it is read off the markup rather
+  // than assumed: the page puts the rendered document inside one element, and a
+  // `<script src=…>` written in that document is the very thing the policy
+  // exists to refuse. A loop over every script with a src would demand the
+  // nonce on that one too, and fail for a page whose policy was right.
+  const root = parseHtml(page);
+  const documentBody = allElements(root).find((el) => attrOf(el, 'id') === 'contentInner');
+  assert.ok(documentBody, 'the page does not carry the element the document is rendered into');
+  const inDocument = new Set(allElements(documentBody));
+
+  const scripts = byTag(root, 'script').filter(
+    (el) => attrOf(el, 'src') !== undefined && !inDocument.has(el)
+  );
   assert.ok(scripts.length > 0, 'the page loads no scripts at all, so the loop below proves nothing');
   for (const tag of scripts) {
+    const src = attrOf(tag, 'src') ?? '';
     assert.ok(
-      tag.includes(`nonce="${nonce}"`),
-      `a script the page loads is not signed with the policy's nonce: ${tag}`
+      (attrOf(tag, 'nonce') ?? '') === nonce,
+      `a script the page loads is not signed with the policy's nonce: ${src}`
+    );
+  }
+
+  // And the other half of "only": the nonce is the page's, and the document
+  // never gets it. A document's script carrying it would be a document's script
+  // the policy admits, which is the whole security story unravelling.
+  for (const tag of byTag(root, 'script').filter((el) => inDocument.has(el))) {
+    assert.notStrictEqual(
+      attrOf(tag, 'nonce'),
+      nonce,
+      `a script written in the document carries the page's own nonce: ${attrOf(tag, 'src') ?? '(inline)'}`
     );
   }
 });
@@ -348,29 +488,50 @@ Then<PreviewWorld>('the page refuses to post a form anywhere', function () {
   );
 });
 
-Then<PreviewWorld>('the page loads media from nowhere but itself', function () {
+// The two halves of the old "loads media from nowhere but itself", which could
+// only ever be true with remote images off and so asserted the off state
+// alongside the property. Split, because agreeing with img-src is the property
+// and holding the network back is the setting — and the setting now has an on
+// branch with a scenario of its own.
+//
+// Compared against img-src rather than against a list written here, because
+// agreeing with img-src is the actual property: media is a source out of the
+// document exactly as a picture is, so it crosses the same boundary and answers
+// to the same setting. A copy of the expected sources would be a second place
+// to keep in step, and would pass while the two directives drifted apart.
+Then<PreviewWorld>('the page treats media exactly as it treats images', function () {
   const policy = policyIn(this.buildPage());
-  const sources = directive(policy, 'media-src').split(/\s+/).filter(Boolean);
-  const imageSources = directive(policy, 'img-src').split(/\s+/).filter(Boolean);
-
-  // Compared against img-src rather than against a list written here, because
-  // agreeing with img-src is the actual property: media is a source out of the
-  // document exactly as a picture is, so it crosses the same boundary and
-  // answers to the same setting. A copy of the expected sources would be a
-  // second place to keep in step, and would pass while the two directives
-  // drifted apart.
+  const sources = sourcesOf(policy, 'media-src');
+  const imageSources = sourcesOf(policy, 'img-src');
   assert.deepStrictEqual(
     sources,
     imageSources,
     `media-src admits ${JSON.stringify(sources)} while img-src admits ` +
       `${JSON.stringify(imageSources)} — the setting that holds one back has to hold both back`
   );
+});
 
-  // Whole sources, not a substring: the stand-in origin is itself an `https:`
-  // URL, so `mediaSrc.includes('https:')` is true whichever way this goes.
+// Whole sources, not a substring: the stand-in origin is itself an `https:`
+// URL, so `mediaSrc.includes('https:')` is true whichever way this goes.
+Then<PreviewWorld>('the page admits nothing from the network', function () {
+  const policy = policyIn(this.buildPage());
+  for (const name of ['img-src', 'media-src']) {
+    const sources = sourcesOf(policy, name);
+    assert.ok(
+      !sources.includes('https:'),
+      `${name} admits the whole network: ${name} ${sources.join(' ')}`
+    );
+  }
+});
+
+// The other direction, and the reason the two above are not simply "the page is
+// strict": with the setting on, the network is admitted on purpose, and a
+// directive that stayed closed would be a setting that does nothing.
+Then<PreviewWorld>('the page admits images from the network', function () {
+  const sources = sourcesOf(policyIn(this.buildPage()), 'img-src');
   assert.ok(
-    !sources.includes('https:'),
-    `media-src admits the whole network, and remote images are off: media-src ${sources.join(' ')}`
+    sources.includes('https:'),
+    `remote images are on, but img-src admits no network: img-src ${sources.join(' ')}`
   );
 });
 

@@ -273,10 +273,18 @@ async function main(): Promise<void> {
   // so the check that they pair is the cheap half of the safety story, taken
   // here rather than in the BDD suite because it is a property of the sample
   // document rather than of a scenario.
-  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe', 'video', 'audio']) {
+  //
+  // `open > 0` as well as `open === close`, which is the half that was missing.
+  // A tag the sample never writes pairs perfectly at 0 and 0, so the check
+  // passed without having looked at anything — and `<video>` and `<audio>` were
+  // the two in this list the kitchen sink did not contain, measured rather than
+  // guessed. They are out of the list now, and `<video>` is covered by the
+  // scenarios in safety.feature instead. For the rest, a renderer that quietly
+  // stopped emitting, say, `<table>` now fails here and says so by name.
+  for (const tag of ['div', 'section', 'blockquote', 'ul', 'ol', 'table', 'pre', 'p', 'li', 'sup', 'sub', 'mark', 'ins', 'span', 'kbd', 'abbr', 'dl', 'dt', 'dd', 'details', 'summary', 'figure', 'figcaption', 'script', 'form', 'iframe']) {
     const open = (html.match(new RegExp(`<${tag}(\\s|>)`, 'g')) ?? []).length;
     const close = (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
-    check(`tag balance <${tag}> (${open} open / ${close} close)`, open === close);
+    check(`tag balance <${tag}> (${open} open / ${close} close)`, open > 0 && open === close);
   }
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);

@@ -67,6 +67,10 @@ Feature: Reading a document
       | Beta    | 1     |
       | Gamma   | 0     |
 
+  # Both of these assert an absence, so both carry the control that makes it
+  # mean something: the heading renders as a heading, and it is still not a
+  # section. Without that line, "0 collapsible sections" is equally satisfied by
+  # a renderer that dropped the heading on the floor.
   Scenario: A heading inside a blockquote is not a page section
     Given a markdown document:
       """
@@ -77,6 +81,7 @@ Feature: Reading a document
       Real content.
       """
     When the preview renders it
+    Then the preview shows "Quoted" as a heading
     Then the preview shows 0 collapsible sections
     Then the outline is empty
 
@@ -88,6 +93,7 @@ Feature: Reading a document
       - ## In a list
       """
     When the preview renders it
+    Then the preview shows "In a list" as a heading
     Then the preview shows 0 collapsible sections
     Then the outline is empty
 

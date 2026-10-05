@@ -6,7 +6,11 @@ import type { DataTable } from '@cucumber/cucumber';
 // TocNode comes from the shared contract rather than src/markdown.ts — see
 // world.ts.
 import type { TocNode } from '../../src/shared/protocol';
+import type * as Html from '../lib/html';
 import type { FlatNode, PreviewWorld } from '../support/world';
+
+const { allElements, attrOf, parseHtml }: typeof Html =
+  require('../lib/html.ts') as typeof Html;
 
 // Annotated as well as cast — see document.steps.ts for why both are needed.
 const assert: typeof import('assert') = require('assert') as typeof import('assert');
@@ -40,27 +44,37 @@ Then<PreviewWorld>('the outline is empty', function () {
   assert.strictEqual(this.content.length, 0, 'expected no outline entries');
 });
 
-Then<PreviewWorld>('the outline contains a section named {string}', function (label: string) {
-  assert.ok(
-    flatten(this.content).some((n) => n.label === label),
-    `expected an outline section named "${label}", got: ` +
-      JSON.stringify(flatten(this.content).map((n) => n.label))
+/**
+ * Every id the rendered document actually carries.
+ *
+ * Off the parse, so a target is matched against the id attribute a browser will
+ * actually resolve. The search this replaces asked whether the raw HTML
+ * contained the text `id="target"` anywhere — which an HTML comment, or an
+ * attribute whose name merely ends in `-id`, satisfies without any element
+ * carrying that id. A dead outline entry would then have read as a live one,
+ * which is the failure this check exists to find.
+ */
+function idsIn(html: string): Set<string> {
+  return new Set(
+    allElements(parseHtml(html))
+      .map((el) => attrOf(el, 'id'))
+      .filter((id): id is string => id !== undefined)
   );
-});
-
-Then<PreviewWorld>('the outline does not contain a section named {string}', function (label: string) {
-  assert.ok(
-    !flatten(this.content).some((n) => n.label === label),
-    `expected no outline section named "${label}", but one was there`
-  );
-});
+}
 
 // Clicking an outline node scrolls to the element carrying this id, so a node
 // whose target does not exist in the document is a dead entry in the pane.
+//
+// The list is asserted non-empty: an outline that rendered nothing at all would
+// otherwise satisfy "every entry points somewhere" by having no entries, which
+// is the failure this exists to catch rather than a way to pass it.
 Then<PreviewWorld>('every outline entry points at something in the document', function () {
-  for (const node of flatten(this.content)) {
+  const nodes = flatten(this.content);
+  assert.ok(nodes.length > 0, 'the outline is empty, so this scenario proves nothing');
+  const ids = idsIn(this.html);
+  for (const node of nodes) {
     assert.ok(
-      this.html.includes('id="' + node.target + '"'),
+      ids.has(node.target),
       `outline entry "${node.label}" targets "${node.target}", which is not in the document`
     );
   }
@@ -118,7 +132,9 @@ Then<PreviewWorld>('the outline lists a diagram named {string}', function (label
 });
 
 Then<PreviewWorld>('every outline table points at a table in the document', function () {
+  assert.ok(this.tables.length > 0, 'the Tables view is empty, so this scenario proves nothing');
+  const ids = idsIn(this.html);
   for (const t of this.tables) {
-    assert.ok(this.html.includes('id="' + t.target + '"'), `table entry "${t.label}" is a dead link`);
+    assert.ok(ids.has(t.target), `table entry "${t.label}" is a dead link`);
   }
 });
