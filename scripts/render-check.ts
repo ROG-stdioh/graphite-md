@@ -305,12 +305,49 @@ async function main(): Promise<void> {
   // The Tables tab is built from these ids, so what it lists is exactly what the
   // scan found — which makes the scan the thing to assert rather than the tab.
   //
-  // Every document below opens with a heading on purpose. A table written before
-  // the first one lands in the intro block, which no scan covers, so a check
-  // without a heading would pass whether or not the scan worked at all — it
-  // would be asserting the absence of a thing that was never in scope.
+  // There are two places the scan is called — a section's body, and the intro
+  // block — and the documents here are split between them on purpose. The ones
+  // below open with a heading, so their tables land in a section; the intro has
+  // its own checks just after. A document that opens with the table would look
+  // like it tested the section path while never touching it.
   const rawTable = renderMarkdown('## T\n\n<table>\n<tr><td>a</td></tr>\n</table>').html;
   check('a raw HTML table is given an id', /<table id="table-1">/.test(rawTable));
+
+  // The intro block's own scan, which is the one that can be missed: a section
+  // body is scanned by renderSection and the intro is rendered outside that, so
+  // before it was scanned at all a table written above the first heading
+  // rendered on the page, appeared in no view, and carried no id — there would
+  // have been nothing for an entry to point at even if one had existed.
+  const introTable = renderMarkdown('| a |\n| - |\n| 1 |\n');
+  check(
+    'a table before the first heading is given an id and listed',
+    /<table id="table-1"/.test(introTable.html) &&
+      introTable.tables.length === 1 &&
+      introTable.tables[0]?.target === 'table-1'
+  );
+  check(
+    'an intro table with no title to borrow is named "Introduction"',
+    introTable.tables[0]?.label === 'Introduction'
+  );
+
+  // The label and the numbering together, because both come from the intro being
+  // scanned where it is: before any section, so `table-1` lands on the table at
+  // the top of the file, and under the title, so an entry can be named for it.
+  const introUnderTitle = renderMarkdown(
+    '# Report\n\n| a |\n| - |\n| 1 |\n\n## Costs\n\n| b |\n| - |\n| 2 |\n'
+  );
+  check(
+    'an intro table is named for the title and numbered before the section one',
+    introUnderTitle.tables.map((t) => `${t.label}:${t.target}`).join(',') ===
+      'Report:table-1,Costs:table-2'
+  );
+
+  // The other half of the same block, and a separate call into it: the fence
+  // rule gives a diagram its id while rendering, so for a diagram only the
+  // *entry* was missing. Asserted anyway, because dropping one of the two scan
+  // calls would otherwise leave the other covering for it.
+  const introDiagram = renderMarkdown('Intro.\n\n```mermaid\ngraph TD; A-->B;\n```\n');
+  check('a diagram before the first heading is listed', introDiagram.diagrams.length === 1);
 
   // Read back out of the tag rather than assumed, so a table the author named
   // keeps that name — it is the anchor they can link to, and inventing a second
