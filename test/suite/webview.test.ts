@@ -76,6 +76,31 @@ const LONG_DOCUMENT = [
 ].join('\n');
 
 /**
+ * A document that ends on a short section.
+ *
+ * The scroll-spy marks the last heading that has passed a line 80px below the
+ * pane's top edge, and a heading can only pass it if what follows is tall
+ * enough to push it there — which the last heading's own body, one line, never
+ * is. The filler above is what makes the page scrollable at all: the rule the
+ * test below pins only applies to a pane that has somewhere to scroll to, and
+ * a document that fits was already answered for.
+ */
+const SECTIONS_DOCUMENT = [
+  `# ${HEADING}`,
+  '',
+  ...Array.from({ length: 40 }, (_, i) => `Filler ${i}, one of the lines that makes this page taller than the pane.`),
+  '',
+  '## First',
+  '',
+  ...Array.from({ length: 20 }, (_, i) => `More filler ${i}.`),
+  '',
+  '## Last',
+  '',
+  'One line under the last heading.',
+  '',
+].join('\n');
+
+/**
  * Mermaid, on its own.
  *
  * A separate fixture rather than a block in the one above, because the diagram
@@ -190,6 +215,12 @@ async function styled(): Promise<void> {
 
 /** An expression that answers whether the outline pane is folded away. */
 const FOLDED = 'document.querySelector("#tocPaneWrap").classList.contains("collapsed")';
+
+/** An expression that reads the label of the outline row the sweep has lit. */
+const ACTIVE_ROW = `(() => {
+  const row = document.querySelector('#graphContent .toc-row.active');
+  return row ? row.textContent.trim() : null;
+})()`;
 
 /** Poll something on the host side of the boundary, where there is no page to ask. */
 async function waitForHost(what: string, probe: () => boolean, timeoutMs = 15_000): Promise<void> {
@@ -360,6 +391,29 @@ suite('the preview, driven through its own page', () => {
       })()`
     );
     assert.ok(parseFloat(height) > 0, `the thumb's height is ${height}`);
+  });
+
+  // The scroll-spy's own hard case, and the one no other layer can reach: it
+  // needs a page that really scrolls and really lays out, which the BDD suite
+  // and the graph-check double both lack. Scrolling stops when the document's
+  // end meets the pane's bottom edge, so the last heading can only pass the
+  // reading line if what follows it is at least as tall as the pane — and what
+  // follows it here is one line. The sweep alone leaves the highlight on an
+  // earlier section for ever; the end-of-scroll rule is what moves it.
+  test('lights the last section when the page is scrolled to its end', async () => {
+    await preview(await openFixture(SECTIONS_DOCUMENT));
+
+    // The control, and it is not decoration: a page that lit its last row from
+    // the first frame would satisfy the wait below without ever scrolling.
+    const start = await waitFor<string>('the outline to light a row', ACTIVE_ROW);
+    assert.strictEqual(start, 'First', `the highlight started on ${JSON.stringify(start)}`);
+
+    await evaluate(`(() => {
+      const pane = document.getElementById('contentPane');
+      pane.scrollTop = pane.scrollHeight;
+    })()`);
+
+    await waitFor('the highlight to reach the last section', `${ACTIVE_ROW} === 'Last'`);
   });
 
   test('folds the outline from the corner control, and the button turns with it', async () => {
