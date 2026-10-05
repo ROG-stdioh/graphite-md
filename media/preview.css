@@ -38,14 +38,25 @@ body{
    being written and the panel around it being laid out — during which the frame
    is 300x150, the outline is the whole viewport and the layout underneath is
    wrong rather than merely small.
+   Hiding the shell is not enough by itself, and that is the thing to know before
+   touching any of this: `body` paints the page's own `--bg` across the whole
+   frame whatever is inside it, so a page with its shell hidden is still a small
+   dark rectangle in the corner of the panel, growing as the panel does. The
+   booting page paints the panel's colour instead. `--vscode-editor-background`
+   is injected into every webview and is what the editor group around the frame
+   is painted with, so a frame of any size is invisible rather than merely
+   empty, and the reveal is the panel changing colour once instead of a
+   rectangle expanding. The fallback is the page's own background, which is
+   what it was everywhere the variable is absent.
    `visibility` rather than `display`, because a page being held back still has
    to be measurable: everything main.ts reads at load — the panes' heights, what
    overflows, where the scrollbar's thumb goes — is 0/0 under `display: none`,
    and the page would come back with none of it. The root stops scrolling for
    the same window, because a page nobody can see should not offer a scrollbar,
    and at that size it genuinely overflows. */
+html.booting{ overflow: hidden; background: var(--vscode-editor-background, var(--bg)); }
+html.booting body{ background: var(--vscode-editor-background, var(--bg)); }
 html.booting .shell{ visibility: hidden; }
-html.booting{ overflow: hidden; }
 
 /* ---------- generic scroll-wrap ---------- */
 .scroll-wrap{ position: relative; min-height: 0; overflow: hidden; }

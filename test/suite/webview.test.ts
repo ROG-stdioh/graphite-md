@@ -501,10 +501,23 @@ suite('the preview, driven through its own page', () => {
       overflow: string;
       w: number;
       h: number;
+      own: string;
+      theme: string;
+      canvas: string;
+      body: string;
     }
     const booting = await evaluate<Booting>(
       `(() => {
         const root = document.documentElement;
+        const own = getComputedStyle(document.body).backgroundColor;
+        // Measured through an element rather than read as a string, so that
+        // whatever notation this engine resolves a theme colour to is the
+        // notation the comparison below is made in.
+        const probe = document.createElement('div');
+        probe.style.background = 'var(--vscode-editor-background)';
+        document.body.appendChild(probe);
+        const theme = getComputedStyle(probe).backgroundColor;
+        probe.remove();
         root.classList.add('booting');
         const shell = document.querySelector('.shell');
         const rect = shell.getBoundingClientRect();
@@ -513,6 +526,10 @@ suite('the preview, driven through its own page', () => {
           overflow: getComputedStyle(root).overflow,
           w: rect.width,
           h: rect.height,
+          own,
+          theme,
+          canvas: getComputedStyle(root).backgroundColor,
+          body: getComputedStyle(document.body).backgroundColor,
         };
       })()`
     );
@@ -523,7 +540,34 @@ suite('the preview, driven through its own page', () => {
     );
     assert.strictEqual(booting.overflow, 'hidden', 'the booting page can still be scrolled');
 
-    const shown = await evaluate<{ visibility: string; overflow: string }>(
+    // And the half of this that hiding the shell does not cover, which is the
+    // half a reader sees: a page whose shell is hidden is still a rectangle of
+    // the page's own `--bg` wherever the frame happens to be, and the frame is
+    // 300x150 until the panel arrives. Holding the shell back and painting the
+    // background anyway is a small dark box in the corner that grows — the
+    // report this guard was written for, still there with the first fix in.
+    assert.notStrictEqual(
+      booting.theme,
+      'rgba(0, 0, 0, 0)',
+      'this editor injects no --vscode-editor-background, so the booting page has only its own colour to paint with'
+    );
+    assert.strictEqual(
+      booting.canvas,
+      booting.theme,
+      `the booting page is painted with its own background rather than the panel's: ${booting.canvas} against ${booting.theme}`
+    );
+    assert.strictEqual(
+      booting.body,
+      booting.theme,
+      `the booting page's body is painted with its own background, so the frame draws a box: ${booting.body}`
+    );
+    assert.notStrictEqual(
+      booting.theme,
+      booting.own,
+      'the panel and the page are the same colour here, so this test cannot tell which one is being painted'
+    );
+
+    const shown = await evaluate<{ visibility: string; overflow: string; canvas: string; own: string }>(
       `(() => {
         const root = document.documentElement;
         root.classList.remove('booting');
@@ -531,11 +575,23 @@ suite('the preview, driven through its own page', () => {
         return {
           visibility: getComputedStyle(shell).visibility,
           overflow: getComputedStyle(root).overflow,
+          canvas: getComputedStyle(root).backgroundColor,
+          own: getComputedStyle(document.body).backgroundColor,
         };
       })()`
     );
     assert.strictEqual(shown.visibility, 'visible', 'the page stayed hidden once it stopped booting');
     assert.notStrictEqual(shown.overflow, 'hidden', 'the page still refuses to scroll once it stopped booting');
+    // Transparent on the root is the page back to its ordinary state, and not an
+    // oversight: with nothing on `html`, the body's background propagates to the
+    // canvas, which is how the page is painted with `--bg` at all — and it is the
+    // reason the booting page has to say something on `html` to stop it.
+    assert.strictEqual(
+      shown.canvas,
+      'rgba(0, 0, 0, 0)',
+      `the page is still painted with the panel's colour after it stopped booting: ${shown.canvas}`
+    );
+    assert.strictEqual(shown.own, booting.own, 'the page did not go back to its own background once it stopped booting');
   });
 
   // The bug the guard exists for: VS Code hands the panel its document before
