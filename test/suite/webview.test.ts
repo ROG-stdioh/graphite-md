@@ -678,16 +678,21 @@ suite('the preview, driven through its own page', () => {
 
     await evaluate('document.querySelector("#outlineToggle").click()');
     await waitFor('the outline to fold', FOLDED);
-    // Then wait for the fold to finish. The class lands at once while the width
-    // is animated — 200ms by default — and measured inside that window the
-    // reading column's bar is still most of a pane's width from the corner,
-    // which reads as the control having drifted a mile rather than as a test
-    // that measured too early. Waiting on the pane's own width rather than on a
-    // clock is what makes the same test right for the instant fold, where the
-    // pane is gone before the next frame.
+    // Then wait for the fold to finish — for the pane to be gone, not merely
+    // small. The class lands at once while the width is animated, and the width
+    // is not only the pane's own business: it is a flex item beside the reading
+    // column, which takes up whatever the pane leaves — so a pane still
+    // 1.15625px wide holds the column's right edge, and the bar under the
+    // control, exactly that far from the shell's. A wait for `< 2` let that
+    // frame through and CI measured the floor below short by it: a gap of
+    // 8.84375px, the last frame of a 200ms animation. Both folds end at 0 —
+    // the animated one's transition target, the instant one's `display: none` —
+    // so 0 is the only width that means finished. Waiting on the pane's own
+    // width rather than on a clock is what makes the same test right for the
+    // instant fold, where the pane is gone before the next frame.
     await waitFor(
       'the pane to finish folding away',
-      `document.querySelector('#tocPaneWrap').getBoundingClientRect().width < 2`
+      `document.querySelector('#tocPaneWrap').getBoundingClientRect().width === 0`
     );
     const folded = await clearance('.content-pane-wrap .scroll-track');
     assert.ok(folded.gap >= 10, explain('while the pane is folded', folded));
