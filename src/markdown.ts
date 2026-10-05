@@ -118,6 +118,32 @@ const md: MarkdownIt = new MarkdownIt({
 // matched by separate, non-fuzzy rules and still linkify.
 md.linkify.set({ fuzzyLink: false });
 
+// texmath's inline `$$…$$` template wraps the formula in a `<section>`, which
+// is block markup — so a formula written *inside* a sentence arrived as a
+// `<section>` inside the sentence's `<p>`. A `<p>` cannot contain a
+// `<section>`, so the browser's error recovery closed the paragraph at the
+// formula and left the words after it outside any paragraph: the page read
+// correctly and the markup did not say what the sentence was (#41).
+//
+// The wrapper is dropped and the `<eqn>` it also carried stays — an element a
+// paragraph may hold, keeping the formula on its own centred line via KaTeX's
+// own `.katex-display{display:block}`. Nothing in the project styles `section`
+// or `eqn`, so the wrapper was load-bearing for nothing. Only the inline
+// template changes: a `$$…$$` line on its own is a block token, whose
+// `<section>` sits beside the paragraphs rather than inside one.
+//
+// Edited in place rather than re-registered, unlike the rules below: a template
+// has no factory, and `texmath.rules` is the library's extension surface — this
+// is the object the registration below reads, so there is nothing to keep in
+// step.
+try {
+  const dollarDouble = texmath.rules.dollars?.inline.find((rule) => rule.name === 'math_inline_double');
+  if (!dollarDouble) throw new Error('texmath carries no `math_inline_double` rule for dollars');
+  dollarDouble.tmpl = '<eqn>$1</eqn>';
+} catch (err) {
+  log.error('failed to unwrap the inline `$$…$$` template; a mid-sentence formula may split its paragraph', err);
+}
+
 // Registering a plugin runs at module load time — if it throws, the whole
 // extension fails to even load (this file is require()'d from extension.ts
 // before activate() runs), which is a much worse failure mode than "the
@@ -178,6 +204,40 @@ try {
   );
 } catch (err) {
   log.error('failed to narrow the `$…$` rule; a price may swallow the next formula', err);
+}
+
+// texmath's two `$$…$$` *block* rules match at the start of a line and then
+// consume the whole rest of it — the rule moves the parser's line cursor past
+// the line's end (`state.line = curline + 1`) — so in `$$x^2$$ is the area.`
+// everything after the closing `$$` was dropped. Not escaped, not shown as
+// text: never handed to any rule at all (#40).
+//
+// The narrowing is what VS Code's preview does. Its block rule declines unless
+// the closing `$$` ends the line, and the line then goes to the inline `$$…$$`
+// rule, which keeps the text. That is the split these two now follow: the block
+// rule owns a line that is only maths, the inline rule owns everything else.
+//
+// Appending to the shipped pattern rather than restating it, so the one thing
+// that differs is the requirement and the rest of the expression cannot drift.
+// Same shape as the `$…$` narrowing above: the rule is replaced through
+// texmath's own factory, with everything but the regexp taken from the rule
+// texmath registered.
+try {
+  const dollarsBlock = texmath.rules.dollars?.block;
+  if (!dollarsBlock || dollarsBlock.length === 0) {
+    throw new Error('texmath carries no `$$…$$` block rules for dollars');
+  }
+  for (const rule of dollarsBlock) {
+    md.block.ruler.at(
+      rule.name,
+      texmath.block({
+        ...rule,
+        rex: new RegExp(rule.rex.source + '[ \\t]*$', rule.rex.flags),
+      })
+    );
+  }
+} catch (err) {
+  log.error('failed to require the `$$…$$` closer to end its line; a formula may swallow the text after it', err);
 }
 try {
   md.use(markdownItSup); // ^2^

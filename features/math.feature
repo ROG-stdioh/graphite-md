@@ -111,6 +111,86 @@ Feature: Math
     Then the preview renders it as displayed math
     And the math typeset on the page reads "\int_0^1 x\,dx"
 
+  # ---- a formula at the start of a line --------------------------------------
+  # Issue #40. texmath's two `$$…$$` *block* rules match at the start of a line
+  # and then consume the whole rest of it — the rule moves the parser's line
+  # cursor past the line's end — so anything written after the closing `$$` on
+  # the same line was never handed to a later rule. It did not render as text,
+  # escaped or otherwise: it was gone.
+  #
+  # VS Code's preview does not have this. Its block rule declines unless the
+  # closing `$$` ends the line, and the line then goes to the inline rule, which
+  # keeps the text. The fix converges on that split: the block rule owns a line
+  # that is only maths, the inline rule owns everything else.
+  Scenario: A formula at the start of a line keeps the text after it
+    Given a markdown document:
+      """
+      ## Notes
+
+      $$x^2$$ is the area.
+      """
+    When the preview renders it
+    Then the preview typesets 1 piece of math
+    And the math typeset on the page reads "x^2"
+    And the preview shows the text "is the area."
+
+  Scenario: Two formulas on one line keep the text between them
+    Given a markdown document:
+      """
+      ## Notes
+
+      $$x^2$$ and $$y^2$$ on one line.
+      """
+    When the preview renders it
+    Then the preview typesets 2 pieces of math
+    And the math typeset on the page reads "x^2"
+    And the math typeset on the page reads "y^2"
+    And the preview shows the text "on one line."
+
+  # The control for both of the above, and the case the narrowing must not cost:
+  # a line that is only a formula stays on the block path. The discriminator is
+  # the paragraph — the block template is emitted beside the paragraphs, while
+  # a formula the block rule declined would come back through the inline rule,
+  # which is wrapped in one. Both routes show maths, so "displayed math" alone
+  # would not tell them apart.
+  Scenario: A formula alone on a line is still a block
+    Given a markdown document:
+      """
+      ## Notes
+
+      $$x^2$$
+      """
+    When the preview renders it
+    Then the preview renders it as displayed math
+    And the preview shows 0 p elements
+
+  # ---- a formula in the middle of a sentence ---------------------------------
+  # Issue #41. texmath's inline `$$…$$` template wraps the formula in a
+  # `<section>`, which is block markup — so a formula written *inside* a
+  # sentence arrived as a `<section>` inside the sentence's `<p>`. A `<p>`
+  # cannot contain a `<section>`, so the browser's error recovery closed the
+  # paragraph at the formula: the sentence became `<p>The area</p>`, the maths,
+  # then "is large." as a loose text node outside any paragraph. The page read
+  # correctly, and the repair was the browser's rather than something the
+  # markup said.
+  #
+  # Nothing needs the wrapper: display maths is block because KaTeX's own
+  # `.katex-display{display:block}` says so, and no rule here styles `section`
+  # or `eqn`. Only the inline template changes — a `$$…$$` line on its own is a
+  # block token, whose `<section>` sits beside the paragraphs rather than
+  # inside one.
+  Scenario: A formula written mid-sentence stays in its sentence
+    Given a markdown document:
+      """
+      ## Notes
+
+      The area $$x^2$$ is large.
+      """
+    When the preview renders it
+    Then the preview typesets 1 piece of math
+    And the preview renders it as displayed math
+    And a single paragraph holds both "The area" and "is large."
+
   Scenario: Malformed math is flagged instead of breaking the page
     Given a markdown document "Bad: $\frac{1}{$ here."
     When the preview renders it

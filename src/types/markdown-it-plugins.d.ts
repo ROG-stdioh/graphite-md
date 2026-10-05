@@ -52,7 +52,7 @@ declare module 'markdown-it-footnote' {
 }
 
 declare module 'markdown-it-texmath' {
-  import type { PluginWithOptions, StateInline } from 'markdown-it';
+  import type { PluginWithOptions, StateBlock, StateInline } from 'markdown-it';
 
   // Only the options this project passes. texmath's real contract is wider (it
   // takes several engines and more knobs); declaring just these is what makes
@@ -98,12 +98,15 @@ declare module 'markdown-it-texmath' {
     block: TexmathRule[];
   }
 
-  // The factory texmath uses to turn one rule into a markdown-it inline rule,
+  // The factories texmath uses to turn one rule into a markdown-it rule,
   // exported alongside `rules` and the counterpart to it: a rule re-stated
-  // through here is registered the way texmath would have registered it.
+  // through one of these is registered the way texmath would have registered
+  // it. markdown.ts uses both — the inline factory for `$…$` and the block
+  // factory for `$$…$$`.
   const plugin: PluginWithOptions<TexmathOptions> & {
     rules: Record<string, TexmathDelimiterSet>;
     inline(rule: TexmathRule): (state: StateInline, silent: boolean) => boolean;
+    block(rule: TexmathRule): (state: StateBlock, begLine: number, endLine: number, silent: boolean) => boolean;
   };
   export default plugin;
 }

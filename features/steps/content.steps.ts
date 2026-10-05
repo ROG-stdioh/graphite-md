@@ -441,6 +441,24 @@ Then<PreviewWorld>('the preview renders it as displayed math', function () {
   );
 });
 
+// The claim #41 is about, and the one `shows the text` cannot make: the page
+// can read correctly while the markup the renderer produced does not say what
+// the sentence was. Both strings are asserted against the *same* `<p>`, so a
+// repair that wrapped the tail in a paragraph of its own — the sentence still
+// split, which is what the browser's error recovery did — fails here.
+Then<PreviewWorld>('a single paragraph holds both {string} and {string}', function (first: string, second: string) {
+  const root = parseHtml(this.html);
+  const holding = byTag(root, 'p').filter((p) => {
+    const text = textOf(p);
+    return text.includes(first) && text.includes(second);
+  });
+  assert.ok(
+    holding.length > 0,
+    `expected one paragraph to hold both ${JSON.stringify(first)} and ${JSON.stringify(second)}; ` +
+      `the paragraphs read ${JSON.stringify(byTag(root, 'p').map((p) => textOf(p)))}`
+  );
+});
+
 Then<PreviewWorld>('the bad math is marked rather than breaking the page', function () {
   assert.ok(
     byClass(parseHtml(this.html), 'katex-error').length > 0,
