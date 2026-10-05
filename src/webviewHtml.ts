@@ -46,9 +46,9 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
     return `${options.toWebviewUri(absPath)}?v=${contentVersion(absPath)}`;
   };
 
-  // One nonce for the page, shared by the CSP and the three script tags that
-  // carry it. A second call would generate a different value and the page's own
-  // scripts would be blocked.
+  // One nonce for the page, shared by the CSP and every script tag the page
+  // carries, the boot guard below included. A second call would generate a
+  // different value and the page's own scripts would be blocked.
   const nonce = getNonce();
 
   // `https:` is admitted only when the user has asked for it. It is the single
@@ -94,6 +94,52 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
     diagrams: options.diagrams,
   };
 
+  // The page holds itself back until it has a size of its own.
+  //
+  // VS Code hands a panel its document before the panel around it has been laid
+  // out, and an iframe that has never been given a size is laid out at the spec
+  // default for a replaced element — 300x150. What that produces is not a small
+  // preview but a wrong one: the outline is a fixed 300px with `flex-shrink: 0`,
+  // so at that viewport it is the entire viewport, the reading pane collapses to
+  // nothing, and the page grows a scrollbar. It reads as a rendering fault
+  // rather than as a slow load, which is what makes it worth fixing rather than
+  // waiting out.
+  //
+  // Nothing in the page can size the frame it lives in, and the host has nothing
+  // to wait for — the panel is already visible when it is created — so the page
+  // waits instead. `.booting` hides the shell, and comes off the moment the
+  // viewport is anything but that default. That resize is the panel's arrival,
+  // and it is the ordinary case. A panel that really is 300x150 sends no resize
+  // at all, so `load` is the second way out: a page that has finished loading
+  // and still has no size is as sized as it is going to get.
+  //
+  // The normal case never hides anything. This runs while the head is being
+  // parsed — before the body exists, so before anything has been painted — and a
+  // page born at its real size, which is what the test editor always produces,
+  // takes the class off in the same task it put it on.
+  //
+  // Inline rather than a file in media/, and it has to stay that way: a script
+  // with a `src` is fetched, and a fetched script arrives after the first paint
+  // it exists to prevent.
+  const bootGuard = `(function () {
+  var root = document.documentElement;
+  // Chromium's layout, in CSS pixels, for a replaced element never given a size.
+  var UNSIZED_W = 300, UNSIZED_H = 150;
+  function sized() { return window.innerWidth !== UNSIZED_W || window.innerHeight !== UNSIZED_H; }
+  function show() {
+    root.classList.remove('booting');
+    window.removeEventListener('resize', onResize);
+    window.removeEventListener('load', show);
+  }
+  function onResize() { if (sized()) show(); }
+  root.classList.add('booting');
+  if (sized()) show();
+  else {
+    window.addEventListener('resize', onResize);
+    window.addEventListener('load', show);
+  }
+})();`;
+
   // mermaid is emitted only when the document has a diagram to draw.
   //
   // It is 3.18 MB of JavaScript, and the page parses and executes it on every
@@ -126,6 +172,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
+<script nonce="${nonce}">${bootGuard}</script>
 <link rel="stylesheet" href="${mediaUrl('vendor/katex/katex.min.css')}">
 <link rel="stylesheet" href="${mediaUrl('preview.css')}">
 </head>

@@ -34,6 +34,19 @@ body{
    to clear, instead of against the viewport, which it does not. */
 .shell{ display:flex; flex: 1; min-height: 0; position: relative; }
 
+/* Held back by the guard in src/webviewHtml.ts, for the moment between the page
+   being written and the panel around it being laid out — during which the frame
+   is 300x150, the outline is the whole viewport and the layout underneath is
+   wrong rather than merely small.
+   `visibility` rather than `display`, because a page being held back still has
+   to be measurable: everything main.ts reads at load — the panes' heights, what
+   overflows, where the scrollbar's thumb goes — is 0/0 under `display: none`,
+   and the page would come back with none of it. The root stops scrolling for
+   the same window, because a page nobody can see should not offer a scrollbar,
+   and at that size it genuinely overflows. */
+html.booting .shell{ visibility: hidden; }
+html.booting{ overflow: hidden; }
+
 /* ---------- generic scroll-wrap ---------- */
 .scroll-wrap{ position: relative; min-height: 0; overflow: hidden; }
 .scroll-body{ height: 100%; overflow-y: scroll; scrollbar-width: none; -ms-overflow-style: none; }
