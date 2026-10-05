@@ -66,7 +66,12 @@
   nav.tabs button.active{ color: var(--accent); border-bottom-color: var(--accent); }
 
   main{ flex:1; display:flex; justify-content:center; padding: 40px 24px 100px; }
-  .page{ width:100%; max-width: 760px; display:none; }
+  /* ONE measure, shared by all three tabs, and everything inside runs its full
+     width — prose, tables and captures alike. The gallery used to be given a
+     wider column of its own for the captures, which left the text centred
+     inside a block whose edges it did not share: one width is what makes the
+     page line up with itself, tab to tab and image to paragraph. */
+  .page{ width:100%; max-width: 1000px; display:none; }
   .page.active{ display:block; }
 
   h1{ font-family: var(--serif); font-size: 30px; font-weight:600; margin: 0 0 6px; }
@@ -157,18 +162,12 @@
      either direction.
      ==================================================================== */
 
-  /* The captures are wide; the 760px column is for prose — but the gallery is
-     a column all the same, not a full-bleed page. It is bounded, and centred
-     by main's justify-content, so it sits on the same axis as the README and
-     Documentation tabs instead of starting at the window edge. 1120px is about
-     as narrow as the widest capture (1445px) can be shown and still read. */
-  #page-gallery{ max-width: 1120px; }
   #page-gallery h1,
   #page-gallery h2,
   #page-gallery h3{ text-wrap: balance; margin: 0; }
 
   /* ---- intro ---- */
-  #page-gallery .brief{ max-width: 68ch; padding-block: 0 8px; }
+  #page-gallery .brief{ padding-block: 0 8px; }
   #page-gallery .brief p{ margin: 0 0 12px; color: var(--ink-soft); }
   #page-gallery .brief p:last-child{ margin-bottom: 0; }
   #page-gallery .brief strong{ color: var(--ink); font-weight: 600; }
@@ -190,7 +189,7 @@
   }
   #page-gallery .plate-name{ font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--ink); }
   #page-gallery .plate-size{ font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  #page-gallery .blurb{ max-width: 70ch; margin-bottom: 18px; }
+  #page-gallery .blurb{ margin-bottom: 18px; }
   #page-gallery .kicker{
     font-family: var(--mono); font-size: 11px; font-weight: 600;
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
@@ -204,7 +203,7 @@
     margin: 0; padding-top: 0; border-top: none;
   }
   #page-gallery .blurb p{ margin: 8px 0 0; color: var(--ink-soft); font-size: 15px; }
-  #page-gallery .plate-note{ max-width: 88ch; margin: 14px 0 0; font-size: 14.5px; color: var(--ink-soft); }
+  #page-gallery .plate-note{ margin: 14px 0 0; font-size: 14.5px; color: var(--ink-soft); }
 
   /* ---- the viewport that scales a fixed-size capture to the column ----
      Its width tracks the SCALED capture rather than the column, so a
@@ -287,7 +286,6 @@
   #page-gallery .legend{
     border-collapse: collapse;
     width: 100%;
-    max-width: 96ch;
     margin: 18px 0 0;
     font-family: var(--serif);
     font-size: 15px; line-height: 1.6; color: var(--ink-soft);
@@ -325,9 +323,10 @@
      The captures sit in wrappers (each needs its label above it), so the
      flex sizing has to land on the wrapper, not on .viewport. */
   #page-gallery .pair{ display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
-  /* 560px, not 320px: in the centred column the two 780px captures stack and
-     are shown at their own size rather than being scaled to sit side by side. */
-  #page-gallery .pair > *{ flex: 1 1 560px; min-width: 0; }
+  /* Half the column each, so the pair spans exactly the column's width and each
+     label ends up directly above the capture it names — rather than out at the
+     left edge of a cell the capture does not fill. */
+  #page-gallery .pair > *{ flex: 1 1 320px; min-width: 0; }
   #page-gallery .pair-label{
     font-family: var(--mono); font-size: 11px; color: var(--muted);
     margin-bottom: 7px; letter-spacing: 0.03em;
@@ -336,7 +335,6 @@
   #page-gallery .site-foot{
     margin-top: 76px; padding-top: 26px;
     border-top: 1px solid var(--border);
-    max-width: 88ch;
   }
   #page-gallery .site-foot p{ margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--muted); }
   #page-gallery .site-foot p:last-child{ margin-bottom: 0; }
@@ -344,18 +342,6 @@
     font-family: var(--mono); font-size: 12px; background: var(--accent-soft);
     color: var(--accent); padding: 1px 5px; border-radius: 4px;
   }
-
-  /* ---- centring the prose ----
-     Every block of text takes the README's own 760px measure and centres on
-     the column's axis, so the gallery is set exactly as the other two tabs are
-     and only the captures use the extra width. Declared here, after the rules
-     above, so it wins the inline axis against their margin shorthands. */
-  #page-gallery .brief,
-  #page-gallery .plate-head,
-  #page-gallery .blurb,
-  #page-gallery .plate-note,
-  #page-gallery .legend,
-  #page-gallery .site-foot{ max-width: 760px; margin-inline: auto; }
 
   @media (max-width: 700px){
     #page-gallery .plate{ margin-top: 40px; }
