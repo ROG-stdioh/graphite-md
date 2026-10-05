@@ -200,6 +200,63 @@ async function waitForHost(what: string, probe: () => boolean, timeoutMs = 15_00
   }
 }
 
+/**
+ * The expression that puts the preview's own page into a frame the test sizes,
+ * and answers what the page made of it.
+ *
+ * 300x150 is not a size somebody chose: it is what a browser lays a frame out at
+ * when it has never been given one, which is the state the preview is written
+ * into more often than not — see the guard in src/webviewHtml.ts. Off-screen
+ * rather than `display: none`, which would leave the frame with no layout at all,
+ * and it is a frame that has been laid out at the wrong size that this is about.
+ *
+ * `finish` closes the document, and that is the whole difference between the two
+ * tests that use this. `load` never fires on a document whose parser is still
+ * open, so one test sees the page show itself because the frame was given a size
+ * and the other because the page had finished loading — which are the two ways
+ * out of the guard, told apart by construction rather than by timing.
+ */
+function unsizedFrame(id: string, finish: boolean): string {
+  return `(() => {
+    const frame = document.createElement('iframe');
+    frame.id = ${JSON.stringify(id)};
+    frame.setAttribute('style', 'position: fixed; left: -10000px; top: 0; width: 300px; height: 150px; border: 0');
+    document.body.appendChild(frame);
+    void frame.offsetWidth; // lay the frame out before writing into it
+    const child = frame.contentDocument;
+    // The page's own script is what draws the outline, and a copy that throws on
+    // its first line is not the page that was reported. A webview is handed this
+    // global by VS Code; a frame inside one is not, and the copy runs in a frame.
+    child.defaultView.acquireVsCodeApi = () => ({
+      postMessage() {},
+      getState() { return undefined; },
+      setState() {},
+    });
+    // The stylesheet is copied in rather than linked, because the link cannot work
+    // from here: the media files are served to the webview's own document and the
+    // resource service refuses a frame inside it — the sheet arrives in the child
+    // cross-origin and unreadable, with none of its rules applied. Measured, not
+    // assumed; the first version of this test linked the stylesheet and waited
+    // twenty seconds for it. Without the rules the copy is a different document:
+    // the same markup laid out as a plain one.
+    const sheet = [...document.styleSheets].find((s) => String(s.href).includes('preview.css'));
+    const rules = [...sheet.cssRules].map((rule) => rule.cssText).join('\\n');
+    child.open();
+    // outerHTML carries no doctype, and a document without one is laid out in
+    // quirks mode — a different layout from the page's, in ways that reach the
+    // numbers this reads.
+    child.write('<!DOCTYPE html>' + document.documentElement.outerHTML);
+    child.head.insertAdjacentHTML('beforeend', '<style>' + rules + '</style>');
+    ${finish ? 'child.close();' : ''}
+    return {
+      booting: child.documentElement.classList.contains('booting'),
+      styled: child.defaultView.getComputedStyle(child.querySelector('.shell')).display === 'flex',
+      w: child.defaultView.innerWidth,
+      h: child.defaultView.innerHeight,
+    };
+  })()`;
+}
+
 suite('the preview, driven through its own page', () => {
   teardown(async () => {
     const open = vscode.window.tabGroups.all
@@ -418,6 +475,228 @@ suite('the preview, driven through its own page', () => {
       })()`
     );
     assert.ok(size.w >= 32 && size.h >= 32, `the corner control measures ${String(size.w)}×${String(size.h)}`);
+  });
+
+  // The rule the guard's class answers to, and the half of it that is easy to
+  // lose: `display: none` would satisfy any test written for "is it hidden", and
+  // would leave the page with nothing to measure — every number the page takes at
+  // load, from the panes' heights to where the scrollbar's thumb goes, is 0/0 on
+  // a document with no layout. Set by hand here, because the test editor's panel
+  // always has a size: this is the state the page is in for the frames between
+  // being written and being laid out.
+  test('hides the shell while the page is booting, without giving up its layout', async () => {
+    await preview(await openFixture(DOCUMENT));
+
+    // The ordinary case first, and the one that has to stay ordinary: a panel
+    // that already has a size when the page arrives never keeps the class at all,
+    // so the state everything below is about is one no reader is normally in.
+    assert.strictEqual(
+      await evaluate<boolean>(`document.documentElement.classList.contains('booting')`),
+      false,
+      'the page is holding itself back in a panel that has a size'
+    );
+
+    interface Booting {
+      visibility: string;
+      overflow: string;
+      w: number;
+      h: number;
+      own: string;
+      theme: string;
+      canvas: string;
+      body: string;
+    }
+    const booting = await evaluate<Booting>(
+      `(() => {
+        const root = document.documentElement;
+        const own = getComputedStyle(document.body).backgroundColor;
+        // Measured through an element rather than read as a string, so that
+        // whatever notation this engine resolves a theme colour to is the
+        // notation the comparison below is made in.
+        const probe = document.createElement('div');
+        probe.style.background = 'var(--vscode-editor-background)';
+        document.body.appendChild(probe);
+        const theme = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        root.classList.add('booting');
+        const shell = document.querySelector('.shell');
+        const rect = shell.getBoundingClientRect();
+        return {
+          visibility: getComputedStyle(shell).visibility,
+          overflow: getComputedStyle(root).overflow,
+          w: rect.width,
+          h: rect.height,
+          own,
+          theme,
+          canvas: getComputedStyle(root).backgroundColor,
+          body: getComputedStyle(document.body).backgroundColor,
+        };
+      })()`
+    );
+    assert.strictEqual(booting.visibility, 'hidden', 'the shell is still drawn while the page is booting');
+    assert.ok(
+      booting.w > 0 && booting.h > 0,
+      `the booting page has no layout left to measure: the shell is ${booting.w}x${booting.h}`
+    );
+    assert.strictEqual(booting.overflow, 'hidden', 'the booting page can still be scrolled');
+
+    // And the half of this that hiding the shell does not cover, which is the
+    // half a reader sees: a page whose shell is hidden is still a rectangle of
+    // the page's own `--bg` wherever the frame happens to be, and the frame is
+    // 300x150 until the panel arrives. Holding the shell back and painting the
+    // background anyway is a small dark box in the corner that grows — the
+    // report this guard was written for, still there with the first fix in.
+    assert.notStrictEqual(
+      booting.theme,
+      'rgba(0, 0, 0, 0)',
+      'this editor injects no --vscode-editor-background, so the booting page has only its own colour to paint with'
+    );
+    assert.strictEqual(
+      booting.canvas,
+      booting.theme,
+      `the booting page is painted with its own background rather than the panel's: ${booting.canvas} against ${booting.theme}`
+    );
+    assert.strictEqual(
+      booting.body,
+      booting.theme,
+      `the booting page's body is painted with its own background, so the frame draws a box: ${booting.body}`
+    );
+    assert.notStrictEqual(
+      booting.theme,
+      booting.own,
+      'the panel and the page are the same colour here, so this test cannot tell which one is being painted'
+    );
+
+    const shown = await evaluate<{ visibility: string; overflow: string; canvas: string; own: string }>(
+      `(() => {
+        const root = document.documentElement;
+        root.classList.remove('booting');
+        const shell = document.querySelector('.shell');
+        return {
+          visibility: getComputedStyle(shell).visibility,
+          overflow: getComputedStyle(root).overflow,
+          canvas: getComputedStyle(root).backgroundColor,
+          own: getComputedStyle(document.body).backgroundColor,
+        };
+      })()`
+    );
+    assert.strictEqual(shown.visibility, 'visible', 'the page stayed hidden once it stopped booting');
+    assert.notStrictEqual(shown.overflow, 'hidden', 'the page still refuses to scroll once it stopped booting');
+    // Transparent on the root is the page back to its ordinary state, and not an
+    // oversight: with nothing on `html`, the body's background propagates to the
+    // canvas, which is how the page is painted with `--bg` at all — and it is the
+    // reason the booting page has to say something on `html` to stop it.
+    assert.strictEqual(
+      shown.canvas,
+      'rgba(0, 0, 0, 0)',
+      `the page is still painted with the panel's colour after it stopped booting: ${shown.canvas}`
+    );
+    assert.strictEqual(shown.own, booting.own, 'the page did not go back to its own background once it stopped booting');
+  });
+
+  // The bug the guard exists for: VS Code hands the panel its document before
+  // the panel around it has been laid out, so the page is written into a frame
+  // with no size of its own, laid out at 300x150 — where the outline, a fixed
+  // 300px that will not shrink, is the whole viewport and the reading pane
+  // collapses to nothing. The panel in the test editor is always born at its real
+  // size, so this state cannot be reached by opening a preview here. It is built
+  // instead, out of the page's own markup.
+  test('holds the page back in a frame with no size, and shows it when the frame gets one', async () => {
+    await preview(await openFixture(DOCUMENT));
+
+    const held = await evaluate<{ booting: boolean; styled: boolean; w: number; h: number }>(
+      unsizedFrame('unsizedFrame', false)
+    );
+    assert.ok(held.styled, 'the copy came out with no stylesheet, so nothing about its layout can be measured');
+    assert.ok(
+      held.booting,
+      `the page was not held back in a frame with no size of its own: the frame measured ${held.w}x${held.h}`
+    );
+
+    // And the state is worth holding back from — the claim the rule in
+    // preview.css rests on, measured rather than assumed. At 300px the outline
+    // (a fixed 300px that will not shrink) is the whole viewport, the reading
+    // pane collapses to nothing, and the page runs wider than the frame it is in,
+    // so the browser draws a scrollbar along the bottom of a page nobody can read
+    // yet. That bar is in the report this guard was written for.
+    const overflow = await evaluate<{ scrollW: number; innerW: number; bareH: number; heldH: number; innerH: number }>(
+      `(() => {
+        const child = document.getElementById('unsizedFrame').contentDocument;
+        const root = child.documentElement;
+        const heldHeight = root.clientHeight;
+        root.classList.remove('booting');
+        const bareHeight = root.clientHeight;
+        root.classList.add('booting');
+        return {
+          scrollW: root.scrollWidth,
+          innerW: child.defaultView.innerWidth,
+          bareH: bareHeight,
+          heldH: heldHeight,
+          innerH: child.defaultView.innerHeight,
+        };
+      })()`
+    );
+    // Two guards before the claim, both of them about this test rather than about
+    // the page: a fixture that does not overflow has no scrollbar to hold back,
+    // and neither does one that never drew a bar in the first place — in either
+    // case the assertion below would pass on any document at all.
+    assert.ok(
+      overflow.scrollW > overflow.innerW,
+      `the page does not overflow a 300px frame, so there is no scrollbar to hold back: ${JSON.stringify(overflow)}`
+    );
+    assert.ok(
+      overflow.bareH < overflow.innerH,
+      `the page at 300px drew no scrollbar for the rule to take away: ${JSON.stringify(overflow)}`
+    );
+    assert.strictEqual(
+      overflow.heldH,
+      overflow.innerH,
+      `the page kept its scrollbar while it was booting: ${JSON.stringify(overflow)}`
+    );
+
+    // Then the frame is given a size, which is the signal the panel's own arrival
+    // sends.
+    //
+    // Waited for by polling the page's state rather than by drawing frames inside
+    // it, which is a workaround for this fixture and not for the page. The frame
+    // is parked off-screen (it would otherwise sit on top of the preview), and
+    // Chromium gives an off-screen frame one rendering opportunity and then stops
+    // scheduling them — measured here, not assumed: a first child-side
+    // `requestAnimationFrame` resolves, a second one never does. So a test that
+    // awaits frames inside that frame hangs on the second, which is exactly what
+    // this did before. Polling the class is sound for the same measurement: the
+    // parser is still open in this fixture, so `load` cannot fire and the resize
+    // is the only way out.
+    await evaluate(`document.getElementById('unsizedFrame').style.width = '800px'`);
+    await waitFor(
+      'the page to stop waiting once its frame has a size',
+      `!document.getElementById('unsizedFrame').contentDocument.documentElement.classList.contains('booting')`
+    );
+    const shown = await evaluate<{ booting: boolean; w: number }>(
+      `(() => {
+        const child = document.getElementById('unsizedFrame').contentDocument;
+        return { booting: child.documentElement.classList.contains('booting'), w: child.defaultView.innerWidth };
+      })()`
+    );
+    assert.ok(!shown.booting, 'the page is still held back after its frame was given a size');
+    assert.ok(shown.w > held.w, `the frame was never actually given a size: ${held.w} → ${shown.w}`);
+  });
+
+  // And the way out that keeps a page from being stuck hidden for good: a panel
+  // that really is 300x150 never sends that resize, so the page stops waiting
+  // when it has finished loading. The frame is closed here and never resized, so
+  // the load event is the only thing that can take the class off — which is what
+  // makes this the test of that escape rather than of the other one.
+  test('shows itself once it has loaded, in a frame that is never given a size', async () => {
+    await preview(await openFixture(DOCUMENT));
+
+    const held = await evaluate<{ booting: boolean }>(unsizedFrame('unsizedFrame', true));
+    assert.ok(held.booting, 'the page was not held back in a frame with no size of its own');
+
+    await waitFor(
+      'the page to stop waiting for a size it is never going to get',
+      `!document.getElementById('unsizedFrame').contentDocument.documentElement.classList.contains('booting')`
+    );
   });
 
   test('sets mermaid drawing, and the drawing is the diagram', async () => {
