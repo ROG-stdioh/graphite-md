@@ -28,8 +28,17 @@ export interface PreviewData {
   diagrams: TocNode[];
 }
 
-/** Host -> webview. */
-export type HostToWebview = { type: 'contentWidth'; value: number };
+/**
+ * Host -> webview.
+ *
+ * `toggleOutline` carries no payload, and that is the design rather than an
+ * omission: the folded state lives in the webview (`vscode.setState`), so the
+ * host is in no position to say which way the toggle should go — it can only
+ * pass the request on and let the page flip what it holds. A `collapsed:
+ * boolean` from the host would be a second copy of that state, and a second
+ * copy is a thing that can disagree.
+ */
+export type HostToWebview = { type: 'contentWidth'; value: number } | { type: 'toggleOutline' };
 
 /**
  * Webview -> host.
@@ -87,6 +96,12 @@ const webviewToHostCheckers: Record<WebviewToHost['type'], (v: Record<string, un
 
 const hostToWebviewCheckers: Record<HostToWebview['type'], (v: Record<string, unknown>) => boolean> = {
   contentWidth: (v) => typeof v.value === 'number',
+  // Nothing to inspect: the whole message is its tag, and matchesVariant has
+  // already established that the tag is this one. A checker that looked for a
+  // field would be inventing a payload the variant does not have — and this
+  // entry is not optional, because the Record is what makes a variant added
+  // without one a compile error.
+  toggleOutline: () => true,
 };
 
 /**

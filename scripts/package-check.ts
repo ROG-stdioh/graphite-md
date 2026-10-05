@@ -125,7 +125,13 @@ async function main(): Promise<void> {
   // esbuild's quoting and spacing, and a check that fails because the bundler
   // changed its mind about quotes is worse than the defect it guards.
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
-    contributes?: { commands?: { command?: unknown }[] };
+    contributes?: {
+      commands?: { command?: unknown }[];
+      keybindings?: { command?: unknown }[];
+      // Every menu is a list of entries; which menus exist is not this check's
+      // business, only the command ids inside them.
+      menus?: Record<string, { command?: unknown }[]>;
+    };
   };
   const contributed = (manifest.contributes?.commands ?? [])
     .map((entry) => entry.command)
@@ -139,6 +145,28 @@ async function main(): Promise<void> {
       `contributed in package.json but never registered, so clicking it reports "command '${id}' not found" — or the bundle is stale, in which case run \`npm run build\``
     );
   }
+
+  // And the other direction, for the ids that name one of ours. A keybinding or
+  // a menu entry pointing at a command nobody contributed fails in the same
+  // silent way as an unregistered command: VS Code warns into a log the user
+  // never opens, and the key does nothing at all. Only the ids under this
+  // extension's own prefix are asserted — a keybinding may legitimately remap a
+  // built-in command, and a check that forbade that would be wrong about the
+  // manifest rather than about a defect. The count guards the vacuous pass: an
+  // empty list would satisfy the rest of the condition on its own.
+  const referenced = [
+    ...(manifest.contributes?.keybindings ?? []),
+    ...Object.values(manifest.contributes?.menus ?? {}).flat(),
+  ]
+    .map((entry) => entry.command)
+    .filter((id): id is string => typeof id === 'string' && id.startsWith('graphiteMd.'));
+  const named = new Set(referenced);
+  const orphaned = [...named].filter((id) => !contributed.includes(id));
+  check(
+    `every graphiteMd command the keybindings and menus name is contributed (${named.size} referenced)`,
+    named.size > 0 && orphaned.length === 0,
+    `named but never contributed, so the entry does nothing: ${orphaned.join(', ')}`
+  );
 
   const unexpected = files.filter((f) => !ALLOWED.some((p) => p.test(f))).sort();
   check(

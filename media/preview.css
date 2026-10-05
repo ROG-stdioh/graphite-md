@@ -203,6 +203,10 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 
 /* ---------- Right "on this page" — accordion, one section open at most ---------- */
 .toc-pane-wrap{ width: 300px; flex-shrink: 0; border-left: 1px solid var(--border); }
+/* The fold is a display change and not a width animation: a 300px transition
+   re-lays-out the content column on every frame of it, and the reading column
+   is the one thing on this page that should hold still while it is read. */
+.toc-pane-wrap.collapsed{ display: none; }
 .toc-pane{ padding: 22px 14px; }
 .toc-pane .pane-label{ font-size: 10.5px; color: var(--muted); font-weight: 600; margin-bottom: 12px; padding-left: 4px; }
 
@@ -253,6 +257,35 @@ h4.section-head, h5.section-head, h6.section-head{ font-family: var(--serif); fo
 }
 
 .toc-empty{ padding: 6px 8px 10px; font-size: 12px; color: var(--muted); }
+
+/* The outline's own control. Outside the pane it folds — a button inside the
+   thing it hides is gone exactly when it is needed — so it sits in the
+   preview's top-right corner instead, over whatever the pane's width puts
+   under it. `right: 16px` clears the overlay scrollbar rather than crossing
+   it: the track sits at right:3px and its thumb grows 1px outward on hover,
+   so the lane runs from 10px out to the edge, and the arrow lives just inside
+   that. The arrow is the same vocabulary the section headings use — pointing
+   down when open, turned to the right when folded — and it is keyed off
+   aria-expanded so the drawing and the announcement cannot disagree. */
+.outline-toggle{
+  position: fixed; top: 12px; right: 16px; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  background: transparent; border: none; border-radius: 6px;
+  color: var(--muted); font-size: 11px; line-height: 1; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.outline-toggle:hover{ background: rgba(255,255,255,0.06); color: var(--accent); }
+.outline-toggle:focus-visible{ outline: 1px solid var(--accent); outline-offset: 1px; }
+.outline-toggle .chev{ transition: transform .15s ease; }
+.outline-toggle[aria-expanded="false"] .chev{ transform: rotate(-90deg); }
+/* Scoped to this control rather than retrofitted across the page: the eased
+   scroll and the dot pulse are older animations whose own reduced-motion pass
+   is a separate change, and folding a panel is not worth a moving glyph to
+   anyone who has asked the system for less motion. */
+@media (prefers-reduced-motion: reduce){
+  .outline-toggle, .outline-toggle .chev{ transition: none; }
+}
 
 /* ---------- inline extensions: sup/sub/ins/mark ---------- */
 .content-pane sup, .content-pane sub{ font-size: 0.72em; line-height: 1; }

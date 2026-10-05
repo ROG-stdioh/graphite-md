@@ -138,7 +138,7 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
       <div class="scroll-track"><div class="scroll-thumb"></div></div>
     </div>
 
-    <div class="toc-pane-wrap scroll-wrap">
+    <div class="toc-pane-wrap scroll-wrap" id="tocPaneWrap">
       <div class="scroll-body toc-pane" data-scroll>
         <div class="pane-label">On this page</div>
         <div class="accordion-section">
@@ -157,6 +157,8 @@ export function buildWebviewHtml(options: WebviewHtmlOptions): string {
       <div class="scroll-track"><div class="scroll-thumb"></div></div>
     </div>
   </div>
+
+  <button class="outline-toggle" id="outlineToggle" type="button" aria-controls="tocPaneWrap" aria-expanded="true" aria-label="Hide the outline"><span class="chev">▾</span></button>
 
   <script nonce="${nonce}">window.__PREVIEW_DATA__ = ${JSON.stringify(initialData)};</script>
 ${mermaidTag}  <script nonce="${nonce}" src="${mediaUrl('preview.js')}"></script>
