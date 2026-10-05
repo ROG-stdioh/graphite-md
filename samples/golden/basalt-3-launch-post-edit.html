@@ -1,0 +1,136 @@
+<h1 class="doc-title">Basalt 3.0 — launch post, edit pass 2</h1>
+<p class="doc-sub">Draft for the announcement. Cuts in <s>strikethrough</s>, additions in <ins>underline</ins>, anything needing a source or a decision in <mark>highlight</mark>.</p>
+
+
+<div class="section" data-id="sec-body-headline">
+  <h2 class="section-head" id="headline" data-target="body-headline">
+    <span class="chev">▾</span><span>Headline</span>
+  </h2>
+  <div class="section-body" id="body-headline">
+    <p><s>Basalt 3.0 is here</s></p>
+<p>Basalt 3.0: <s>faster</s> <ins>predictable</ins> reads under failure</p>
+<p><mark>Check whether we can claim “predictable” without a benchmark table in the post. If not, use “steadier.”</mark></p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-opening">
+  <h2 class="section-head" id="opening" data-target="body-opening">
+    <span class="chev">▾</span><span>Opening</span>
+  </h2>
+  <div class="section-body" id="body-opening">
+    <p>Two years ago we started rebuilding the read path around a simple observation: <s>most of our
+customers have replicas that are slow, not dead</s> <ins>the replicas that hurt you are the ones
+that answer late, not the ones that stop answering</ins>. A dead replica drops out of the quorum
+and costs nothing. A slow one stays in it, and every read that touches it waits.</p>
+<p>3.0 is the release where we stopped treating those as the same failure — <a href="#what-shipped">what shipped</a>
+is four changes, and only one of them is in the read path.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-the-problem">
+  <h2 class="section-head" id="the-problem" data-target="body-the-problem">
+    <span class="chev">▾</span><span>The problem</span>
+  </h2>
+  <div class="section-body" id="body-the-problem">
+    <p>Under load, p<sub>99</sub> read latency was 3x the p<sub>50</sub> on clusters nobody would describe as
+unhealthy. <mark>Get the real numbers from the 3.0 benchmark run, the 3x figure is from the Q<sub>2</sub>
+incident review and was measured on a different workload.</mark> Our own engineers could not
+explain it from the dashboards, which is usually a sign the dashboard is measuring the wrong
+thing.</p>
+<p>The fix was not a faster code path. It was a health check that measures latency instead of
+liveness, so a replica answering in 400 ms leaves the quorum the same way a dead one does.</p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-what-shipped">
+  <h2 class="section-head" id="what-shipped" data-target="body-what-shipped">
+    <span class="chev">▾</span><span>What shipped</span>
+  </h2>
+  <div class="section-body" id="body-what-shipped">
+    <ul>
+<li><strong>Latency-aware health checks.</strong> Replicas are removed from quorums on response time, not on
+missed heartbeats.</li>
+<li><strong>Hedged reads, off by default.</strong> Issue to <sub>r</sub> + 1 replicas and take the first <sub>r</sub> answers.
+Costs about 38% more read load; pulls p<sub>99</sub> down by roughly half.
+<ul>
+<li>Off by default because the load increase is real and the win is tail-only.</li>
+<li>Enable it per cluster with <code>basalt-admin cluster config set hedged_reads true</code>.</li>
+</ul>
+</li>
+<li><strong>Shard rebalancing in the coordinator.</strong> No more hand-picking shards when you add a node.<sup class="footnote-ref"><a href="#fn1" id="fnref1">[1]</a></sup></li>
+<li><strong>Streaming snapshots.</strong> A backup no longer needs the disk headroom of a full copy.</li>
+</ul>
+<p>We sustained 10<sup>6</sup> writes per second on a nine-node cluster during the benchmark, with p<sub>99</sub>
+write latency under 9 ms. <mark>Confirm the node count — the run I saw was five nodes, and the
+nine-node number came from the pre-release build.</mark></p>
+<table id="table-1" class="md-table"><thead>
+<tr>
+<th style="text-align:left">Metric</th>
+<th style="text-align:right">2.x</th>
+<th style="text-align:right">3.0</th>
+<th style="text-align:right">Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left">p50 read latency</td>
+<td style="text-align:right">1.9 ms</td>
+<td style="text-align:right">1.9 ms</td>
+<td style="text-align:right">unchanged</td>
+</tr>
+<tr>
+<td style="text-align:left">p99 read latency</td>
+<td style="text-align:right">5.4 ms</td>
+<td style="text-align:right">2.8 ms</td>
+<td style="text-align:right">−48%</td>
+</tr>
+<tr>
+<td style="text-align:left">p99 write latency</td>
+<td style="text-align:right">12.0 ms</td>
+<td style="text-align:right">8.7 ms</td>
+<td style="text-align:right">−27%</td>
+</tr>
+<tr>
+<td style="text-align:left">Read load, hedged</td>
+<td style="text-align:right">n/a</td>
+<td style="text-align:right">+38%</td>
+<td style="text-align:right">by design</td>
+</tr>
+</tbody>
+</table>
+<p><mark>Every number in this table needs to come from the same run and the same cluster shape.
+Right now the read row is from the quorum note, which was five nodes.</mark></p>
+
+    
+  </div>
+</div>
+
+<div class="section" data-id="sec-body-closing">
+  <h2 class="section-head" id="closing" data-target="body-closing">
+    <span class="chev">▾</span><span>Closing</span>
+  </h2>
+  <div class="section-body" id="body-closing">
+    <p>3.0 is available today, and upgrading is a rolling restart. The migration runbook covers the
+full procedure.<sup class="footnote-ref"><a href="#fn2" id="fnref2">[2]</a></sup> If you are on 2.6 or older, <ins>check which SDK your clients are on</ins> before
+you start — it is the one step people skip and the one that causes the call.</p>
+<p><s>We think this is our best release yet.</s></p>
+<p><mark>Cut the line above, it reads as filler. End on the runbook link instead.</mark></p>
+
+    
+  </div>
+</div>
+<hr class="footnotes-sep">
+<section class="footnotes">
+<ol class="footnotes-list">
+<li id="fn1" class="footnote-item"><p>RFC 014 if you want the design rationale. Shorter version: the planner is a pure function of observed disk pressure, so a coordinator restart loses nothing. <a href="#fnref1" class="footnote-backref">↩︎</a></p>
+</li>
+<li id="fn2" class="footnote-item"><p>Link the runbook from the docs site, not from the repo — the repo path will move when we split the operator guide out. <a href="#fnref2" class="footnote-backref">↩︎</a></p>
+</li>
+</ol>
+</section>
