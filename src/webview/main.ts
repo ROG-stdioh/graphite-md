@@ -706,15 +706,67 @@ const syncScrollbars = Array.from(document.querySelectorAll<HTMLElement>('.scrol
 // ================= folding the outline pane away =================
 // The pane is a fixed 300px flex item, and a reader who is here to read rather
 // than to navigate is giving it a share of the window for something they are
-// not looking at. The fold is a class rather than a width transition: a 300px
-// animation re-lays-out the reading column on every frame of it, which is a lot
-// of work to make the text re-wrap under somebody mid-sentence.
+// not looking at.
+//
+// How the fold is *drawn* belongs to the stylesheet and depends on
+// `graphiteMd.animation`: a width transition when it is on, and the
+// `display: none` it has always been when it is off. What belongs here is that
+// the two are not interchangeable to the code around them — a transition takes
+// 200ms to finish and a display change does not — so the wait below is chosen
+// to match, from the same answer the CSS is working from.
 const tocWrap = byId('tocPaneWrap');
 const outlineToggle = byId('outlineToggle');
+
+/**
+ * Whether the fold on this page actually takes time to finish.
+ *
+ * Asked of the element rather than of the setting, because the answer comes
+ * from two places that both belong to the stylesheet: `graphiteMd.animation`
+ * decides whether the width is transitioned at all, and `prefers-reduced-motion`
+ * takes that transition away again for a reader who has asked the system for
+ * less motion. Reading the computed duration is the one question that covers
+ * both, and unlike a second copy of the rules here it cannot drift from the CSS.
+ */
+function foldIsAnimated(): boolean {
+  return parseFloat(getComputedStyle(tocWrap).transitionDuration) > 0;
+}
+
+/**
+ * Runs `fn` once the pane's width has stopped moving.
+ *
+ * `transitionend` fires once per animated property, so it is filtered to the one
+ * being waited on: the border's colour fades over the same 200ms and would
+ * otherwise be able to answer first. The timer is the backstop for a transition
+ * that never runs at all — a backgrounded tab does not animate — because a page
+ * waiting on an event that never came would leave the reading column's bar the
+ * wrong size for as long as it stayed open. Both paths go through one `done`
+ * flag, so whichever arrives first wins and the other costs nothing.
+ */
+function whenWidthSettles(fn: () => void): void {
+  let done = false;
+  const finish = (): void => {
+    if (done) return;
+    done = true;
+    tocWrap.removeEventListener('transitionend', onEnd);
+    fn();
+  };
+  const onEnd = (event: TransitionEvent): void => {
+    if (event.propertyName === 'width') finish();
+  };
+  tocWrap.addEventListener('transitionend', onEnd);
+  setTimeout(finish, 400);
+}
 
 /** Draws the fold, and keeps the button's announcement in step with it. */
 function applyOutlineCollapsed(collapsed: boolean): void {
   tocWrap.classList.toggle('collapsed', collapsed);
+  // Folded, the pane is either `display: none` or a zero-width box, and only
+  // the first of those takes it out of the tab order on its own — the animated
+  // fold leaves a pane that is still there, invisible, and reachable by Tab
+  // from the reading column. `inert` is the one property that means "not there"
+  // to a keyboard and a screen reader alike, and it says the same thing in both
+  // folds rather than only the one that gets it for free.
+  tocWrap.inert = collapsed;
   // `aria-expanded` is the pane's state and the label is the action, so the two
   // read as opposites — a button whose announcement contradicts what it does is
   // worse for a screen reader than one that says nothing at all.
@@ -724,26 +776,28 @@ function applyOutlineCollapsed(collapsed: boolean): void {
 
 function setOutlineCollapsed(collapsed: boolean): void {
   outlineCollapsed = collapsed;
+  // Read before the fold is drawn, because drawing it is what takes focus away:
+  // an element inside a `display: none` subtree cannot hold focus and an inert
+  // one is not allowed to, so the browser moves focus to the body either way —
+  // which drops a keyboard reader at the top of the document with no sign of
+  // where they were. The control that closed the pane is the one place they can
+  // carry on from, and only when focus was inside the pane: taking it from the
+  // document on every fold would be its own bug.
+  const focusWasInPane = tocWrap.contains(document.activeElement);
   applyOutlineCollapsed(collapsed);
   persistState();
-  // The pane is about to stop being rendered, and an element inside a
-  // `display:none` subtree cannot hold focus — the browser moves it to the
-  // body, which drops a keyboard reader at the top of the document with no sign
-  // of where they were. The control that closed the pane is the one place they
-  // can carry on from, and only when focus was inside the pane: taking it from
-  // the document on every fold would be its own bug.
-  if (collapsed && tocWrap.contains(document.activeElement)) outlineToggle.focus();
+  if (collapsed && focusWasInPane) outlineToggle.focus();
 
   // One frame, in both directions, because the fold changes the width of the
   // pane that does not fold: the content column keeps its percentage of a wider
   // pane, so every paragraph in it re-wraps and there is a different amount of
   // it to scroll. The scrollbars are re-synced from here rather than from the
   // resize listener, which never hears about this — and sync() writes nothing
-  // while the outline is hidden, so the folded wrap is a no-op either way.
+  // while the outline is gone, so the folded wrap is a no-op either way.
   //
   // The graphs are redrawn only on the way back, and that is the half that
   // cannot be left to a later resize: a window resize while the pane was folded
-  // redrew all three, and a graph whose rows sit inside a `display:none` pane
+  // redrew all three, and a graph whose rows sit inside a `display: none` pane
   // lays out none of them — drawGraph clears its svg before it gives up, so the
   // outline would come back as a blank corner with nothing logged. The frame is
   // also what makes the rows measurable again: the class is off, but the layout
@@ -756,7 +810,14 @@ function setOutlineCollapsed(collapsed: boolean): void {
       tablesGraph.drawGraph();
       diagramsGraph.drawGraph();
     }
-    syncScrollbars.forEach((sync) => { sync(); });
+    const sync = (): void => { syncScrollbars.forEach((fn) => { fn(); }); };
+    // An animated fold is not over when that frame runs. The reading column is
+    // still re-wrapping under a wrap that is on its way to zero, so syncing
+    // there measures a layout the page is about to leave — the content bar comes
+    // back the wrong size and stays wrong until the reader happens to scroll.
+    // The end of the width transition is the first moment the geometry is real.
+    if (foldIsAnimated()) whenWidthSettles(sync);
+    else sync();
   });
 }
 
@@ -799,6 +860,13 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
   switch (message.type) {
     case 'contentWidth':
       document.body.style.setProperty('--content-width', `${message.value}%`);
+      return;
+    // The fold's speed, changed under an open preview. It is an attribute
+    // rather than a class on the pane because the page is rebuilt from a string
+    // on every render and the stylesheet keys both folds off the body — see the
+    // CSS, and `buildWebviewHtml` for where it is first written.
+    case 'animation':
+      document.body.dataset.anim = message.value ? 'smooth' : 'instant';
       return;
     // The palette route to the fold the corner button offers, and it goes
     // through the same `setOutlineCollapsed` for that reason: the announcement,

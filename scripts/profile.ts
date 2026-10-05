@@ -147,6 +147,7 @@ async function main(): Promise<void> {
         cspSource: 'vscode-webview://profile',
         remoteImages: false,
         contentWidth: 60,
+        animation: true,
         bodyHtml: rendered.html,
         headings: rendered.headings,
         tables: rendered.tables,
