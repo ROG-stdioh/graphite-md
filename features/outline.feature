@@ -152,9 +152,22 @@ Feature: The outline pane
     # passes for a document that rendered nothing at all.
     And the code shows the literal text "<table>"
 
-  Scenario: A table written before the first heading belongs to no section
+  # The intro — everything above the first heading — is not a section, and the
+  # first assertion below is the one this scenario was written for: nothing up
+  # there gets a row in the Content view.
+  #
+  # The second assertion is the correction. "No section" had been read as "no
+  # entry anywhere", so a table written above the first heading was listed in no
+  # view at all — the renderer only scanned section bodies, and the test agreed
+  # with it. The Tables view is a flat list of where things are in the document
+  # and the intro is a place in it; with no heading to file it under, the entry
+  # is named for the document's own title, which is the heading that text sits
+  # beneath on the page.
+  Scenario: A table written before the first heading is listed, and is no section
     Given a markdown document:
       """
+      # Report
+
       | A |
       |---|
       | 1 |
@@ -162,7 +175,35 @@ Feature: The outline pane
       ## Later
       """
     When the preview renders it
-    Then the outline lists 0 tables
+    Then the outline lists 1 tables
+    Then the outline lists a table named "Report"
+    Then every outline table points at a table in the document
     Then the outline reads:
       | section | depth |
       | Later   | 0     |
+
+  # Where the intro's scan sits is the whole of this scenario. The ids come off
+  # one counter, allocated in the order the scans run, and both views are in
+  # document order — so a scan placed after the sections would list the table at
+  # the top of the document below the one under `## Later`, and hand them the
+  # ids the wrong way round while it was there.
+  Scenario: An intro table and a section table are numbered in document order
+    Given a markdown document:
+      """
+      # Report
+
+      | Stage | Cost |
+      |-------|------|
+      | parse | 5 ms |
+
+      ## Detail
+
+      | Stage | Cost |
+      |-------|------|
+      | lex   | 2 ms |
+      """
+    When the preview renders it
+    Then the tables read:
+      | table   | target  |
+      | Report  | table-1 |
+      | Detail  | table-2 |
