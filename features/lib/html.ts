@@ -71,6 +71,21 @@ export function allElements(root: Root, out: El[] = []): El[] {
   return out;
 }
 
+/**
+ * Every element *directly* under `root`, in document order.
+ *
+ * The difference from `allElements` is the whole point: a question about
+ * nesting — is this list inside that list item, does this `<li>` hold a
+ * paragraph or a bullet list — is a question about one level, and the
+ * descendant-everything walk answers it by flattening the levels together.
+ */
+export function childElements(root: Root, out: El[] = []): El[] {
+  for (const child of root.childNodes) {
+    if (isElement(child)) out.push(child);
+  }
+  return out;
+}
+
 /** Every element under `root` whose tag is `tag`. */
 export function byTag(root: Root, tag: string): El[] {
   const wanted = tag.toLowerCase();
@@ -95,6 +110,28 @@ export function textOf(root: Root): string {
   for (const child of root.childNodes) {
     if (isElement(child)) text += textOf(child);
     else if (child.nodeName === '#text') text += child.value;
+  }
+  return text;
+}
+
+/**
+ * The text a reader sees in an element *itself*, rather than in one of the
+ * things nested inside it: everything `textOf` would return, minus every
+ * subtree rooted at a child whose tag is in `except`.
+ *
+ * The case it exists for is a list item. `textOf` on the `<li>` of a nested
+ * list returns the item's own words and its children's run together — "two
+ * nested a nested b deep" — which is not a string any scenario wants to write
+ * down, and reading the document's shape back out of it is guesswork. Skipping
+ * the nested `<ul>` leaves "two", which is what the item says.
+ */
+export function textExcluding(root: Root, except: ReadonlySet<string>): string {
+  let text = '';
+  for (const child of root.childNodes) {
+    if (isElement(child)) {
+      if (except.has(child.tagName)) continue;
+      text += textExcluding(child, except);
+    } else if (child.nodeName === '#text') text += child.value;
   }
   return text;
 }

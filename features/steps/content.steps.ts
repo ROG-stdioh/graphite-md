@@ -10,6 +10,7 @@
 //
 // See document.steps.ts for why every step takes a world type argument and
 // every parameter an annotation.
+import type { DataTable } from '@cucumber/cucumber';
 import type * as Html from '../lib/html';
 import type { PreviewWorld } from '../support/world';
 
@@ -20,6 +21,7 @@ const {
   byTag,
   classesOf,
   commentsIn,
+  firstTag,
   parseHtml,
   textOf,
 }: typeof Html = require('../lib/html.ts') as typeof Html;
@@ -96,6 +98,90 @@ Then<PreviewWorld>('the preview shows {string} as inline code', function (text: 
   );
 });
 
+// ---- emphasis ------------------------------------------------------------
+// `<em>` and `<strong>` were asserted nowhere in this repo. Every document is
+// mostly emphasis and links, and the whole pair of tags — which spelling of the
+// marker produces which, and that a doubled marker is not two singles — went
+// unwatched.
+
+Then<PreviewWorld>('the preview shows {string} in italics', function (text: string) {
+  const held = heldBy(this.html, 'em');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in an <em>; the page's <em> elements hold ${JSON.stringify(held)}`
+  );
+});
+
+Then<PreviewWorld>('the preview shows {string} in bold', function (text: string) {
+  const held = heldBy(this.html, 'strong');
+  assert.ok(
+    held.includes(text),
+    `expected "${text}" in a <strong>; the page's <strong> elements hold ${JSON.stringify(held)}`
+  );
+});
+
+/**
+ * `inner` in an `<innerTag>` inside an `<outerTag>` whose own text is `outer`.
+ *
+ * Read through the outer element rather than over the whole page, because "the
+ * italic is inside the bold" is the claim and a document that holds both tags
+ * side by side satisfies anything asked of the page as a whole.
+ */
+function expectNested(
+  html: string,
+  innerTag: string,
+  inner: string,
+  outerTag: string,
+  outer: string
+): void {
+  const outers = byTag(parseHtml(html), outerTag).filter((el) => textOf(el) === outer);
+  assert.ok(
+    outers.length > 0,
+    `expected a <${outerTag}> holding exactly ${JSON.stringify(outer)}; the page's <${outerTag}> ` +
+      `elements hold ` + JSON.stringify(heldBy(html, outerTag))
+  );
+  const nested = outers.flatMap((el) => byTag(el, innerTag)).map((el) => textOf(el));
+  assert.ok(
+    nested.includes(inner),
+    `expected ${JSON.stringify(inner)} in a <${innerTag}> inside that <${outerTag}>; it holds ` +
+      JSON.stringify(nested)
+  );
+}
+
+// Both directions, because they are two different renderings of `***x***`:
+// markdown-it reads the triple marker as bold inside italics, and a renderer
+// that crossed the two would satisfy "both tags hold the text" either way.
+Then<PreviewWorld>('the preview shows {string} in bold inside the italics {string}', function (
+  inner: string,
+  outer: string
+) {
+  expectNested(this.html, 'strong', inner, 'em', outer);
+});
+
+Then<PreviewWorld>('the preview shows {string} in italics inside the bold {string}', function (
+  inner: string,
+  outer: string
+) {
+  expectNested(this.html, 'em', inner, 'strong', outer);
+});
+
+// The claim is about the *only* italics on the page, which is what makes it a
+// control as well as an assertion. A scenario whose subject is "this underscore
+// is not emphasis" is satisfied by a renderer that emits no `<em>` at all, so
+// the same document carries one real emphasis and this step is what says so.
+//
+// The whole list, not a membership test: two italics where the document wrote
+// one is the failure a naive `_` rule produces, and membership would not see it.
+Then<PreviewWorld>('the italics on the page are exactly {string}', function (expected: string) {
+  const held = heldBy(this.html, 'em');
+  assert.deepStrictEqual(
+    held,
+    [expected],
+    '\n  italics mismatch\n  expected exactly: ' + JSON.stringify([expected]) +
+      '\n  actual:           ' + JSON.stringify(held)
+  );
+});
+
 // ---- the typographer ------------------------------------------------------
 
 Given<PreviewWorld>('the typographer is on', function () {
@@ -107,6 +193,87 @@ Given<PreviewWorld>('the typographer is off', function () {
 });
 
 // ---- footnotes -----------------------------------------------------------
+
+/**
+ * The words of a footnote, with the little `↩` link back to the sentence left
+ * out. It is chrome the plugin adds rather than anything the author wrote, and
+ * reading it in would put a return arrow in the middle of every expected cell.
+ */
+function noteText(item: Html.El): string {
+  const skip = (node: Html.Root): string => {
+    let text = '';
+    for (const child of node.childNodes) {
+      if ('tagName' in child) {
+        if (classesOf(child).includes('footnote-backref')) continue;
+        text += skip(child);
+      } else if (child.nodeName === '#text') {
+        text += child.value;
+      }
+    }
+    return text;
+  };
+  return skip(item).trim();
+}
+
+// The half the scenario's own name claims — "at the foot" says where, and the
+// numbering says *which* note is which, which is the part a reader would notice
+// being wrong. A footnote list is numbered by the order the sentences cite it,
+// not by the order the definitions were written, so a document that defines its
+// notes out of order has to come out renumbered.
+//
+// One table for both, because they are one claim: the label the reader sees in
+// the prose and the words they find at the foot are two halves of the same row.
+Then<PreviewWorld>('the notes are numbered in the order they are first cited:', function (
+  dataTable: DataTable
+) {
+  const expected = dataTable.hashes().map((row) => ({
+    label: row.label ?? '',
+    note: row.note ?? '',
+  }));
+
+  const root = parseHtml(this.html);
+  const refs = byClass(root, 'footnote-ref');
+  assert.ok(refs.length > 0, 'the document produced no citations at all, so this scenario proves nothing');
+
+  // By id rather than by position, because the href is the claim: a citation
+  // that pointed at the wrong note would still sit in the right place in the
+  // list.
+  const notesById = new Map<string, Html.El>();
+  for (const item of byClass(root, 'footnote-item')) {
+    const id = attrOf(item, 'id');
+    if (id !== undefined) notesById.set(id, item);
+  }
+
+  const actual: { label: string; note: string }[] = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const anchor = firstTag(ref, 'a');
+    const label = anchor === null ? '' : textOf(anchor);
+    const target = (anchor === null ? undefined : attrOf(anchor, 'href'))?.replace(/^#/, '') ?? '';
+    // A note cited by a second sentence is the same row, not a new one — the
+    // second citation is labelled `[1:1]` and would otherwise read as a second
+    // note. Keyed by the note rather than by the label for exactly that reason.
+    if (seen.has(target)) continue;
+    seen.add(target);
+    const note = notesById.get(target);
+    actual.push({ label, note: note === undefined ? '<no note with that id>' : noteText(note) });
+  }
+
+  assert.deepStrictEqual(
+    actual,
+    expected,
+    '\n  footnote mismatch\n  expected: ' + JSON.stringify(expected) +
+      '\n  actual:   ' + JSON.stringify(actual)
+  );
+});
+
+// The one cited note is the control: "the definition that was never cited is
+// not shown" is satisfied by a renderer that shows no notes at all, and the
+// scenario using this asserts the cited one is there.
+Then<PreviewWorld>('the preview shows {int} notes', function (expected: number) {
+  const found = byClass(parseHtml(this.html), 'footnote-item').length;
+  assert.strictEqual(found, expected, `expected ${expected} notes at the foot, found ${found}`);
+});
 
 Then<PreviewWorld>('the note is rendered at the foot of the page', function () {
   const footnotes = byClass(parseHtml(this.html), 'footnotes');
@@ -214,6 +381,57 @@ Then<PreviewWorld>('every checkbox can be toggled in the source file', function 
 
 Then<PreviewWorld>('the preview renders it as math', function () {
   assert.ok(byClass(parseHtml(this.html), 'katex').length > 0, 'expected KaTeX output');
+});
+
+// How many formulas, which is what tells "this is maths" apart from "this is the
+// maths I wrote and nothing else is". A dollars-delimited renderer is one bad
+// rule away from reading a price as an opening delimiter, and a page with the
+// right formula on it looks identical either way until you count.
+function expectMaths(this: PreviewWorld, expected: number): void {
+  const found = byClass(parseHtml(this.html), 'katex').length;
+  assert.strictEqual(found, expected, `expected ${expected} piece(s) of maths, found ${found}`);
+}
+Then<PreviewWorld>('the preview typesets {int} pieces of math', expectMaths);
+Then<PreviewWorld>('the preview typesets {int} piece of math', expectMaths);
+
+// The half of the count that the count cannot see. A `$…$` KaTeX refused is a
+// `katex-error` span and *not* a `katex` one, so a page where the reader's prose
+// was handed to KaTeX and came back as a red error box passes `expectMaths`
+// untouched. Kept as its own step rather than folded into the count, because the
+// malformed-maths scenario wants the opposite assertion and would have to opt
+// out of it.
+Then<PreviewWorld>('the preview marks no math as bad', function () {
+  const flagged = byClass(parseHtml(this.html), 'katex-error').length;
+  assert.strictEqual(flagged, 0, `expected no KaTeX errors, found ${flagged}`);
+});
+
+// The TeX the reader's formula was written in, read back off KaTeX's own
+// annotation element. The step above says something typeset; this says *what*,
+// and the two failures it separates are a formula that rendered as the wrong
+// formula and a `$…$` that never became maths at all — both of which leave a
+// page with KaTeX output on it.
+//
+// Trimmed, because display maths keeps the newlines that surrounded it in the
+// source and no scenario wants to write those down.
+Then<PreviewWorld>('the math typeset on the page reads {string}', function (expected: string) {
+  const annotations = byTag(parseHtml(this.html), 'annotation').map((el) => textOf(el).trim());
+  assert.ok(
+    annotations.includes(expected),
+    `expected the maths ${JSON.stringify(expected)} on the page; KaTeX was handed ` +
+      JSON.stringify(annotations)
+  );
+});
+
+// `renders it as math` and this are not the same claim, and the difference is
+// the half that gets forgotten: display-mode output wraps a `.katex` span, so
+// every assertion of the weaker step is satisfied by a renderer that made all
+// maths display. This is the one that says the delimiters went to the right
+// places.
+Then<PreviewWorld>('the preview renders it as inline math', function () {
+  const root = parseHtml(this.html);
+  assert.ok(byClass(root, 'katex').length > 0, 'expected KaTeX output');
+  const display = byClass(root, 'katex-display').length;
+  assert.strictEqual(display, 0, `expected inline maths, found ${display} in display mode`);
 });
 
 Then<PreviewWorld>('the preview renders it as displayed math', function () {
@@ -338,6 +556,31 @@ Then<PreviewWorld>('{string} is an email link', function (text: string) {
 // the pattern this replaced found it and called it live markup. Which is the
 // direction that matters here: the check would have passed for a document whose
 // script was commented out.
+
+// The count of an element, which is the shape most of the escaping claims need.
+// "at least one `<b>`" is satisfied by a renderer that escaped nothing as well
+// as by one that escaped everything — the point of these scenarios is usually
+// that a tag is live in one place on the page and *only* in that place, and
+// that is a count.
+function expectElements(this: PreviewWorld, expected: number, tag: string): void {
+  const found = byTag(parseHtml(this.html), tag).length;
+  const message =
+    expected === 0
+      ? `expected no <${tag}> element, but ${found} reached the page`
+      : `expected ${expected} <${tag}> element(s), found ${found}`;
+  assert.strictEqual(found, expected, message);
+}
+Then<PreviewWorld>('the preview shows {int} {word} elements', expectElements);
+Then<PreviewWorld>('the preview shows {int} {word} element', expectElements);
+
+// The whole page's text, exactly. `the preview shows the text` is a containment
+// test, which cannot see the failure this is for: a document whose `&amp;` was
+// escaped twice reads `&amp;`, and that string contains the `&` the scenario
+// asked for.
+Then<PreviewWorld>("the preview's text is exactly {string}", function (expected: string) {
+  const text = textOf(parseHtml(this.html)).trim();
+  assert.strictEqual(text, expected, `the page reads ${JSON.stringify(text)}`);
+});
 
 Then<PreviewWorld>('the {word} element is passed through as markup', function (tag: string) {
   const found = byTag(parseHtml(this.html), tag).length;
